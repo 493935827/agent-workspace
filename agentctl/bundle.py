@@ -43,6 +43,10 @@ DENY_DIRS = {".git", ".venv", "__pycache__", "backups", "dist", "packages",
              "manifests", "node_modules", ".pytest_cache", ".hatch"}
 DENY_SUFFIXES = (".pyc", ".pyo", ".zip", ".egg-info")
 
+# Lines ending with this marker are exempt from the secret scan; used for
+# deliberate canary samples in tests. Auditable: grep for the marker.
+CANARY_MARKER = "# agentctl-canary"
+
 SECRET_PATTERNS = [
     (re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "OpenAI-style API key"),
     (re.compile(r"ghp_[A-Za-z0-9]{30,}"), "GitHub token"),
@@ -102,6 +106,8 @@ def scan_secrets(files: list[Path], root: Path) -> list[str]:
         except OSError:
             continue
         for i, line in enumerate(text.splitlines(), 1):
+            if CANARY_MARKER in line:
+                continue
             for rx, label in SECRET_PATTERNS:
                 if rx.search(line):
                     rel = f.relative_to(root).as_posix()

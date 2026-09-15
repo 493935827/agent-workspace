@@ -73,9 +73,16 @@ def test_downgrade_requires_force(ws, tmp_path):
 
 def test_secret_scan_blocks_export(ws, tmp_path):
     (ws / "skills" / "alpha" / "notes.md").write_text(
-        "my key: sk-abcdefghijklmnopqrstuvwx\n", encoding="utf-8")
+        "my key: sk-abcdefghijklmnopqrstuvwx\n", encoding="utf-8")  # agentctl-canary
     with pytest.raises(BundleError, match="notes.md"):
         export_bundle(ws, output=tmp_path / "b.zip")
+
+
+def test_secret_scan_allows_marked_canary_lines(ws, tmp_path):
+    (ws / "skills" / "alpha" / "canary.md").write_text(
+        "sample: sk-abcdefghijklmnopqrstuvwx  # agentctl-canary\n", encoding="utf-8")
+    out = export_bundle(ws, output=tmp_path / "b.zip")  # must not raise
+    assert out.exists()
 
 
 def test_export_dry_run_writes_nothing(ws, tmp_path):
