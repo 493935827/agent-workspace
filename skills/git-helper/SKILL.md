@@ -17,3 +17,6 @@ Example skill shipped with the agent-workspace MVP.
 
 - Placeholder content: replace with your real skill.
 - Enabled for every environment via `configs/common.yaml`.
+## Update note (simulated edit on personal machine)
+
+Prefer `git switch -c` over `git checkout -b` in examples.
