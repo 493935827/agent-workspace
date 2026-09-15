@@ -1,0 +1,10 @@
+# Personal desktop: games, personal projects, full internet.
+description: Personal desktop - full internet access
+
+skills:
+  - game-dev
+  - image-tools
+
+secrets:
+  optional:
+    - STEAM_API_KEY

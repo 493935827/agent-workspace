@@ -1,0 +1,19 @@
+# Intranet machine: no public internet, updated via offline bundles only.
+description: Intranet machine - offline bundle deployments
+
+network:
+  internet: false
+
+skills:
+  - internal-doc-search
+
+exclude_skills:
+  - image-tools
+
+links:
+  # junctions need no special privileges on locked-down Windows machines
+  strategy: junction
+
+secrets:
+  optional:
+    - INTERNAL_DOC_URL

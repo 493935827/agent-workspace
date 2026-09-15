@@ -1,0 +1,37 @@
+# Baseline applied to every machine before the environment profile.
+# Effective Config = common + <profile> + local.yaml (machine layer)
+description: Shared baseline for all machines
+
+# skills enabled everywhere (lists merge by union across layers)
+skills:
+  - git-helper
+  - python-helper
+  - code-review
+
+# How skills/ reaches the agent tools on this machine.
+#   strategy: auto | symlink | junction | copy
+#   auto -> symlink, then junction (Windows), then copy
+# targets are machine paths; overriding them in a higher layer REPLACES
+# this list (they are machine-specific, so unioning would be wrong)
+links:
+  strategy: auto
+  targets:
+    - ~/.agents/skills
+
+# doctor checks these tools (git and python are always checked)
+tools:
+  git: {}
+  python: ">=3.10"
+  uv: {}
+  node: {}
+  npm: {}
+
+# secret NAMES only - values live in .env, which never enters git or bundles
+secrets:
+  required: []
+  optional:
+    - OPENAI_API_KEY
+    - LOCAL_LLM_URL
+
+network:
+  internet: true

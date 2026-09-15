@@ -1,0 +1,23 @@
+# --- Secrets & machine-local state (NEVER commit, NEVER bundle) ---
+.env
+local.yaml
+
+# --- Generated artifacts ---
+backups/
+dist/
+packages/
+manifests/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# --- Node (reserved for later use) ---
+node_modules/
+
+# --- OS ---
+Thumbs.db
+.DS_Store

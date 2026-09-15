@@ -1,0 +1,14 @@
+# Company laptop: corporate network, company git remote.
+description: Company laptop - corporate network
+
+skills:
+  - jira-helper
+  - document-helper
+
+# game-dev is in the union but explicitly disabled on this machine
+exclude_skills:
+  - game-dev
+
+secrets:
+  required:
+    - COMPANY_TOKEN
