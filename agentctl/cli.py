@@ -14,6 +14,7 @@ from agentctl.bootstrap import run_bootstrap
 from agentctl.doctor import print_checks, run_checks
 from agentctl.links import LinkError, LinkManager
 from agentctl.update import run_update
+from agentctl.discovery import commands as discovery
 
 ERRORS = (
     workspace.WorkspaceError,
@@ -75,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     rp = sub.add_parser("restore", help="restore workspace files from a backup zip")
     rp.add_argument("backup", help="path under backups/ (from a previous import)")
 
+    discovery.add_parsers(sub)
     return p
 
 
@@ -232,6 +234,7 @@ HANDLERS = {
     "export": cmd_export,
     "import": cmd_import,
     "restore": cmd_restore,
+    **{name: discovery.run for name in discovery.COMMANDS},
 }
 
 
@@ -253,6 +256,9 @@ def main(argv: list[str] | None = None) -> int:
         root = workspace.find_root(start)
         return HANDLERS[args.command](root, args)
     except ERRORS as e:
+        if args.command in discovery.COMMANDS:
+            discovery.emit({"schema_version": 1, "error": "workspace-error"}, args.json)
+            return 2
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:

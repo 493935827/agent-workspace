@@ -16,7 +16,7 @@
 - **环境分层**：`Effective Config = common + <profile> + local.yaml + .env(secrets)`。
 - **Secret 隔离**：`.env` 与 `local.yaml` 永远 gitignore，永远不进离线包。
 - **内网离线部署**：一条命令导出带校验和的 zip，内网一条命令导入。
-- **可重复构建**：新机器不需要回忆任何配置步骤，`agentctl bootstrap` 重建环境。
+- **可重复准备工作区**：`agentctl bootstrap` 准备项目依赖、配置模板与 Skill 链接；系统软件、全局工具和编辑器扩展的自动安装尚未实现。
 - **跨平台**：Windows 优先（junction 降级链），兼容 Linux/macOS。
 
 ## 2. 架构说明
@@ -58,9 +58,10 @@ agent-workspace/
 ├── tests/             # pytest 测试                     [Git: 是]
 ├── .env.example       # Secret schema（只有名字）       [Git: 是]
 ├── VERSION            # 语义化版本，如 0.1.0            [Git: 是]
-├── pyproject.toml     # 唯一运行时依赖: pyyaml           [Git: 是]
+├── pyproject.toml     # 运行依赖: PyYAML、ruamel.yaml    [Git: 是]
 ├── .env               # 真实 Secret                     [Git: 否，机器本地]
 ├── local.yaml         # 环境标记 + 机器覆盖             [Git: 否，机器本地]
+├── .agentctl/         # 发现快照、忽略规则、配置备份     [Git: 否，不进离线包]
 ├── packages/          # wheels/npm 离线缓存（import 后） [Git: 否，生成]
 ├── backups/           # import/替换前自动备份           [Git: 否，生成]
 ├── manifests/         # 每次 export/import 的审计副本   [Git: 否，生成]
@@ -92,7 +93,7 @@ uv run agentctl bootstrap --env company
 
 # 内网电脑（先拿到离线包，见第 8 节）
 python -m venv .venv
-.venv/Scripts/pip install --no-index --find-links packages/wheels pyyaml
+.venv/Scripts/pip install --no-index --find-links packages/wheels pyyaml "ruamel.yaml>=0.18,<0.19"
 .venv/Scripts/python -m agentctl bootstrap --env intranet --offline
 ```
 
@@ -173,6 +174,74 @@ import 时如果 doctor 失败，提示里会给出对应的 restore 命令；�
 
 ## 命令参考
 
+### 环境发现、比较与登记
+
+这组命令解决“机器上实际有什么、配置里期望有什么、哪些需要登记”。`resources` 是期望清单，旧 `tools` 仍是 doctor 的可执行文件检查名单。**登记不会安装软件，bootstrap 目前也不会执行 resources 中的安装声明。**
+
+```bash
+agentctl scan                             # 默认与 --quick 相同
+agentctl scan --full --new                 # 六个 Provider，只看未登记提醒
+agentctl scan --provider npm --json        # 一个 JSON 对象，stdout 不混入提示
+agentctl --env personal diff --full        # 当前机器与三层有效配置对比
+agentctl --env personal diff --full --check # 用退出码做自动检查
+agentctl snapshot --dry-run                # 完整扫描，预览保存基线
+agentctl snapshot                         # 保存最近一次成功的显式基线
+
+agentctl adopt --provider npm --profile personal             # 只列候选
+agentctl adopt npm:example --profile personal --dry-run       # 单项预览
+agentctl adopt npm:example --profile personal                 # 单项登记
+agentctl adopt --all --provider npm --profile personal        # 登记合格候选
+agentctl adopt vscode:ms-python.python --profile common --pin-version
+
+agentctl ignore npm:example                # 只忽略本机未登记提醒
+agentctl ignore --list
+agentctl ignore npm:example --remove
+```
+
+`--profile` 每次 adopt 都必填，支持 `configs/` 中现有的任意合法 profile（包括 common）。`--env` 是读取有效配置的全局参数，放在子命令前；没有环境标记时读取 common + local。adopt 查重只看目标共享层：personal 看 common + personal，common 只看 common；local 和其他 profile 不阻止登记。已有声明和版本锁定不会被 adopt 改写。输出中的 `local_overrides` 提示本机覆盖导致的最终版本要求。
+
+```yaml
+resources:
+  npm:
+    "@openai/codex":
+      version: null       # 只要求存在；观测版本只保存到快照
+  winget:
+    BurntSushi.ripgrep.MSVC:
+      version: "14.1.1"   # 精确版本，不支持版本区间
+```
+
+映射继续按 common → profile → local 合并，显式 `version: null` 可以解除上层版本锁定；第一版不支持取消继承某个资源。身份是 `(provider, id)`，npm 与 pnpm 的同名包不会合并。uv/pipx 名称按 Python 包名规则统一，VS Code 扩展 ID 统一小写。
+
+| 当前状态 | 含义 |
+|---|---|
+| NEW | 未登记且来源足够明确；**不表示刚安装** |
+| UNKNOWN | 可发现，但来源不明确，不进入批量登记 |
+| MATCH | 已满足存在性或精确版本要求 |
+| DRIFT | 观测版本与锁定版本不同 |
+| MISSING | 对应 Provider 成功完整扫描，但没有找到已声明资源 |
+| INDETERMINATE | 未扫描、不可用、执行/解析失败，或精确版本证据不足 |
+| ABSENT | 上次快照有、现在没有，且没有对应声明 |
+
+历史变化单独保存在 `history`：首次为 NO_BASELINE，范围不可比较为 INCOMPARABLE，其余包括 APPEARED、DISAPPEARED、VERSION_CHANGED、RESTORED、UNCHANGED。MATCH 可以同时显示 RESTORED。`diff` 默认只汇总 MATCH，`--all` 显示全部；`scan --new` 隐藏已登记和已忽略项目。ignore 只按精确身份匹配，不隐藏已声明资源的异常。
+
+**扫描范围与失败处理：**
+
+- quick 查询 uv、pipx、npm、pnpm、VS Code；full 额外查询 Windows Winget。只读当前 PATH 对应的管理器环境和默认编辑器实例，不穷举所有 Node 环境或编辑器 profile。
+- Provider 独立报告 success / unavailable / error。命令不存在属于 unavailable；执行失败、超时、输出无法完整解析属于 error。不会用失败结果推断 MISSING。
+- `--provider` 将比较范围限制到一个管理器；quick 未扫描的已声明资源仍为 INDETERMINATE，`--check` 不会静默放行。没有相关声明的 unavailable 不影响检查通过。
+- npm/pnpm 只有清单提供可验证的 registry 来源时才允许登记；没有来源字段、本地链接、带凭据或未知 URL 均为 UNKNOWN。部分 npm 版本不输出来源字段，此时需要后续的人工来源补录功能，当前不会猜测来源。
+- Winget 使用文本表格，支持中英文列宽；截断 ID 或无法识别的行会使整个 Provider 失败。近似版本（如 `> 1.0`）视为版本未知。同一身份存在多个实例时合并存在性，版本不一致则标记版本未知。VS Code 记录编辑器管理的扩展身份，不保证其原始安装渠道是 Marketplace。
+- 只执行查询命令，不安装、不更新源、不登录、不自动接受协议；尽可能关闭更新检查和交互。第三方工具可能自行写缓存、日志或访问已配置源，因此 scan 的只读承诺针对 agentctl 主动写入的配置、状态及安装资源。
+
+**状态、写回与退出码：**
+
+- scan、diff 不写状态。只有 snapshot 更新 `.agentctl/state/current.json`；它完整扫描六个 Provider，任一个 error 都保留旧基线，unavailable 可以保存为未覆盖。历史比较只在前后成功且扫描范围指纹一致时成立；指纹包含主机、用户、可执行文件和管理器目录，原始路径不输出。
+- ignore 写 `.agentctl/ignore.yaml`。adopt 保留 YAML 注释和顺序，先整体校验，再检查文件是否被并发修改，备份目标共享配置并原子替换。agentctl 写进程之间用锁互斥；外部编辑器不遵守该锁，写入前再次检查内容，无法承诺任意外部程序与替换操作之间的严格事务隔离。
+- 配置备份在 `.agentctl/backups/`，不自动清理。需要恢复时手工将对应 YAML 复制回 `configs/<profile>.yaml`；现有 `restore` 只接受离线导入备份 ZIP。若进程被强制终止留下 `.agentctl/write.lock`，先确认没有运行中的写操作，再手工移除锁文件。
+- snapshot、adopt、ignore 支持 `--dry-run`，不创建 `.agentctl`。`--pin-version` 遇到未知版本拒绝写入，批量中任一候选不满足则整批不写。
+- 退出码 **0**：正常完成；**1**：仅 `--check` 发现 MISSING/DRIFT；**2**：执行、解析、配置或状态错误，或 `--check` 下已声明资源缺少覆盖/版本证据。NEW 不导致检查失败。
+- JSON `schema_version` 当前为 1，包含环境、Provider 状态和范围指纹、资源比较、历史变化及汇总。过滤只影响显示的资源，汇总保留完整比较结果。错误只包含固定类别，不回显外部 stdout/stderr 或 YAML 错误原文；不扫描 `.env`、SSH 或凭据存储。
+
 ```
 agentctl status                  # 版本/环境/commit/skill 数/链接健康度
 agentctl version                 # agentctl + workspace + commit
@@ -196,7 +265,8 @@ agentctl restore BACKUP_ZIP
 
 ## ROADMAP（未实现）
 
-- `agentctl adopt`：把存量 skill（如 `~/.agents/skills` 里的 28 个）迁入仓库
+- 存量 Skill 迁入工具（命令名另定，adopt 已用于资源登记）
+- resources 声明对应的安装/恢复执行器、人工来源补录和多管理器实例扫描
 - Windows embeddable Python 打包，给完全锁死的内网机
 - npm 依赖的完整离线生命周期（当前只有清单 + npm pack 缓存）
 - MCP server 的安装与配置管理（当前只有 registry 模板 + JSON 校验）

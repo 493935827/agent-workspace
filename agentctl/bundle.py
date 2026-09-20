@@ -40,7 +40,7 @@ from agentctl.utils import now_ts, safe_zip_parts, shasum
 
 DENY_NAMES = {".env", "local.yaml"}
 DENY_DIRS = {".git", ".venv", "__pycache__", "backups", "dist", "packages",
-             "manifests", "node_modules", ".pytest_cache", ".hatch"}
+             "manifests", "node_modules", ".pytest_cache", ".hatch", ".agentctl"}
 DENY_SUFFIXES = (".pyc", ".pyo", ".zip", ".egg-info")
 
 # Lines ending with this marker are exempt from the secret scan; used for

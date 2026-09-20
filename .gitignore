@@ -1,6 +1,7 @@
 # --- Secrets & machine-local state (NEVER commit, NEVER bundle) ---
 .env
 local.yaml
+.agentctl/
 
 # --- Generated artifacts ---
 backups/

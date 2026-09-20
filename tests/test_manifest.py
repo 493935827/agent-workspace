@@ -13,7 +13,7 @@ def test_manifest_fields_and_sums_coverage(ws, tmp_path):
     assert manifest["git_commit"] is None  # fixture workspace is not a git repo
     assert set(manifest["skills"]) >= {"alpha", "beta", "gamma"}
     assert manifest["agents"] == ["example"]
-    assert manifest["python_packages"] == ["pyyaml>=6.0"]
+    assert manifest["python_packages"] == ["pyyaml>=6.0", "ruamel.yaml>=0.18,<0.19"]
     assert manifest["export_mode"] == "walk"
     datetime.fromisoformat(manifest["created_at"])  # parses as ISO-8601
 

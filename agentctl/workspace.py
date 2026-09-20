@@ -19,7 +19,7 @@ STRUCTURE_DIRS = ("agents", "skills", "configs", "scripts", "tools")
 LOCAL_STATE_DIRS = ("packages", "backups", "dist", "manifests")
 
 # keep in sync with pyproject.toml [project].dependencies
-FALLBACK_DEPS = ["pyyaml>=6.0"]
+FALLBACK_DEPS = ["pyyaml>=6.0", "ruamel.yaml>=0.18,<0.19"]
 
 
 class WorkspaceError(RuntimeError):
