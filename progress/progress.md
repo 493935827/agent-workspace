@@ -1,25 +1,24 @@
 # 项目进度
 
-最后更新：2026-09-23 17:34（Asia/Shanghai）
+最后更新：2026-09-23 23:43（Asia/Shanghai）
 
 ## 当前概况
 
-- 当前目标：扩充跨环境常用软件清单；CopyQ 16.0.0 已作为公司与内网共用软件加入并准备离线安装包。
-- Skill 配置：公共启用 40 个；合并环境层后 personal 42 个、company 42 个、intranet 41 个，当前 personal 沙盒链接 42/42 健康。
-- 本地完成度：公司笔记本 51/52，内网 44/45；唯一缺项是 AndeSight 5.3.1，需从公司软件库、Andes 授权门户或原始介质取得。
-- 开发配套：26 个精确版本 VSIX 已在隔离目录全部安装验证；OneNote MCP 0.1.1 与 115 个 npm 依赖已完成离线安装验证。
-- OneNote 笔记：7 个笔记本、39 个分区、142 个页面及 970 个资源已无警告导出；另含 68 个原生 `.one` 自动备份和 155,167,799 字节便携 ZIP，按敏感数据保管。
-- 游戏规则：未收集游戏本体；个人电脑目录仅含 Battle.net、WeGame、Xbox 平台引导器，START 随 WeGame 管理，小米游戏盒子走 OEM 恢复渠道。
-- 完整性：交付包共 1,865 个文件、约 3.201 GiB；`SHA256SUMS.txt` 覆盖的 1,863 个文件，CopyQ 安装器与 Winget 清单哈希一致。
-- 签名：25 个可执行安装介质中 20 个签名有效，AutoHotkey、CC Switch、CopyQ、Flow Launcher 未签名但官方清单哈希匹配，Windows Terminal 的系统签名检查返回 UnknownError 且清单哈希匹配。
-- 边界：安装包尚未传输或上传；代码 Git 远程不作为安装包目的地，`packages/` 保持 Git 忽略。
-- 阻塞：安装包目的地尚未提供；完整交付仍需补齐 AndeSight 或接受该缺项。
-- 下一步：确认是否继续加入 Listary、Quicker 等常用工具；另待取得 AndeSight 和安装包传输目的地后完成软件交付。
+- 当前目标：维护可跨个人、公司和内网环境重建的 Agent/Skill 与开发软件；等待下一批常用软件确认和实际传输。
+- Skill：新增 37 个本机 Skill，项目共 45 个源目录；公共启用 40 个，personal/company/intranet 分别启用 42/42/41，当前 personal 链接 42/42 健康。
+- 软件：CopyQ 16.0.0 已加入公司与内网共用清单；公司 51/52、内网 44/45 项介质就绪，唯一缺项为 AndeSight 5.3.1。
+- 交付包：1,865 个文件、约 3.201 GiB；1,863 条 SHA-256 已复核，25 个可执行介质中 20 个签名有效、4 个未签名但官方哈希匹配。
+- 开发配套：26 个精确版本 VSIX 和 OneNote MCP 0.1.1 的 115 个 npm 依赖已完成离线准备与验证。
+- OneNote：7 个笔记本、39 个分区、142 个页面、970 个资源和 68 个原生备份已归档，按敏感数据保管。
+- 边界：安装介质、OneNote 数据和 Excel 不进 Git；安装包尚未传输，代码远程不是软件目的地。
+- 阻塞：需取得 AndeSight 5.3.1，并由用户提供安装包传输目的地。
+- 下一步：确认 Listary、Quicker 等候选；补齐 AndeSight；传输后按 `metadata/SHA256SUMS.txt` 在目标端复核。
 
 ## 对话归档
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-09-23 / Skill sync and CopyQ | 新增 37 个同步 Skill，并把 CopyQ 16.0.0 加入公司/内网交付包；全部已验证并推送项目记录 | [Skill 同步扩充与 CopyQ 软件补充](handoff-20260923-234327-skill-sync-copyq.md) |
 | 2026-09-23 / installer transfer and OneNote | 公司/内网安装介质已本地准备并验证；OneNote 142 页、970 个资源和 68 个原生备份已归档，等待 AndeSight 与传输目的地 | [安装介质与 OneNote 归档](handoff-20260923-173434-installer-transfer-onenote.md) |
 | 2026-09-21 / software selection | 用户确认公司 51 项、内网 44 项；改为传安装包，目的地待提供 | [软件选择与安装包传输](handoff-20260921-105807-installer-transfer.md) |
 | 2026-09-20 / discovery implementation | 第一版实现并推送；累计 84 项测试覆盖通过，实机与跨平台限制已记录 | [环境发现第一版实施](handoff-20260920-133313-discovery-implementation.md) |
