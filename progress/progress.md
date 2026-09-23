@@ -4,7 +4,8 @@
 
 ## 当前概况
 
-- 当前目标：按用户已确认的 Excel 选择准备并传输实际安装包；本地交付包位于 `packages/installer-transfer/`。
+- 当前目标：扩充跨环境 Skill 同步集；37 个本机 Skill 已完整纳入项目，项目现有 45 个 Skill 源目录。
+- Skill 配置：公共启用 40 个；合并环境层后 personal 42 个、company 42 个、intranet 41 个，当前 personal 沙盒链接 42/42 健康。
 - 本地完成度：公司笔记本 50/51，内网 43/44；唯一缺项是 AndeSight 5.3.1，需从公司软件库、Andes 授权门户或原始介质取得。
 - 开发配套：26 个精确版本 VSIX 已在隔离目录全部安装验证；OneNote MCP 0.1.1 与 115 个 npm 依赖已完成离线安装验证。
 - OneNote 笔记：7 个笔记本、39 个分区、142 个页面及 970 个资源已无警告导出；另含 68 个原生 `.one` 自动备份和 155,167,799 字节便携 ZIP，按敏感数据保管。
@@ -13,7 +14,7 @@
 - 签名：24 个可执行安装介质中 20 个签名有效，AutoHotkey、CC Switch、Flow Launcher 未签名但官方清单哈希匹配，Windows Terminal 的系统签名检查返回 UnknownError 且清单哈希匹配。
 - 边界：安装包尚未传输或上传；代码 Git 远程不作为安装包目的地，`packages/` 保持 Git 忽略。
 - 阻塞：安装包目的地尚未提供；完整交付仍需补齐 AndeSight 或接受该缺项。
-- 下一步：取得 AndeSight 和传输目的地后补包、重新生成哈希并传输，目标端再按 `metadata/SHA256SUMS.txt` 复核。
+- 下一步：目标机通过 Git 更新或离线包取得新增 Skill；另待取得 AndeSight 和安装包传输目的地后完成软件交付。
 
 ## 对话归档
 

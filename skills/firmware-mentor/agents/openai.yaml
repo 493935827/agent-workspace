@@ -1,0 +1,6 @@
+interface:
+  display_name: "固件技术导师"
+  short_description: "面向初级固件工程师的技术讲解、系统排障、学习与职业成长导师"
+  default_prompt: "使用 $firmware-mentor 帮我理解并解决当前固件问题，同时指出可验证的下一步。"
+policy:
+  allow_implicit_invocation: false

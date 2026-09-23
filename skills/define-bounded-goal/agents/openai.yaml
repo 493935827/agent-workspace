@@ -1,0 +1,7 @@
+interface:
+  display_name: "Define Bounded Goal"
+  short_description: "Define a measurable goal with execution budgets"
+  default_prompt: "Use $define-bounded-goal to define a measurable, time-boxed goal with bounded depth and verification."
+
+policy:
+  allow_implicit_invocation: false

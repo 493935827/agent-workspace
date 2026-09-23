@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Tickets"
+  short_description: "Run local or GitHub ticket waves safely"
+  default_prompt: "Use $run-tickets to execute GitHub issue owner/repo#123 with up to 3 isolated ticket workers."

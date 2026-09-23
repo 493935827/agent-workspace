@@ -1,0 +1,6 @@
+﻿interface:
+  display_name: "Serial Debug"
+  short_description: "Shared serial console debugging for humans and agents"
+  default_prompt: "Use a shared serial middle layer so the human and agent can see and type into the same console. Prefer scripts/shared_serial_bridge.py for local Windows COM ports; use Conserver when it is installed. Do not close the human terminal just to send agent commands. Coordinate state-changing commands and consult shared-bridge, conserver, hardware-safety, and troubleshooting references when needed."
+policy:
+  allow_implicit_invocation: true

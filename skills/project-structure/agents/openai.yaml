@@ -1,0 +1,5 @@
+interface:
+  display_name: "项目结构管理"
+  short_description: "按需组织项目目录、文件与文档，维护清晰入口并减少无关上下文读取"
+policy:
+  allow_implicit_invocation: true

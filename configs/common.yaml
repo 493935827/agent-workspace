@@ -4,9 +4,46 @@ description: Shared baseline for all machines
 
 # skills enabled everywhere (lists merge by union across layers)
 skills:
-  - git-helper
-  - python-helper
+  - agent-reach
+  - andes-aice-bringup
+  - ask-matt
   - code-review
+  - codebase-design
+  - define-bounded-goal
+  - diagnosing-bugs
+  - domain-modeling
+  - firmware-mentor
+  - git-delivery
+  - git-helper
+  - grill-me
+  - grill-with-docs
+  - grilling
+  - handoff
+  - implement
+  - improve-codebase-architecture
+  - onenote
+  - pack-to-dts
+  - project-structure
+  - prototype
+  - pyside6-fluent-ui
+  - python-helper
+  - qt-ui-design
+  - reg-to-ll
+  - research
+  - resolving-merge-conflicts
+  - run-tickets
+  - serial-debug
+  - setup-matt-pocock-skills
+  - tdd
+  - teach
+  - to-questionnaire
+  - to-spec
+  - to-tickets
+  - triage
+  - wait-what
+  - wayfinder
+  - wizard
+  - writing-for-agents
 
 # How skills/ reaches the agent tools on this machine.
 #   strategy: auto | symlink | junction | copy

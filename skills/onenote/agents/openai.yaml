@@ -1,0 +1,13 @@
+﻿interface:
+  display_name: "OneNote"
+  short_description: "Operate OneNote notebooks, sections, and pages via MCP."
+  default_prompt: "Use $onenote to search, read, create, or update my OneNote pages."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "onenote"
+      description: "Microsoft OneNote MCP server for notebooks, sections, and pages."
+
+policy:
+  allow_implicit_invocation: false

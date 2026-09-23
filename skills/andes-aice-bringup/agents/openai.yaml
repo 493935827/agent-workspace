@@ -1,0 +1,4 @@
+interface:
+  display_name: "Andes AICE Bring-up"
+  short_description: "Recover USB, release CPU, and bring up ICEman JTAG"
+  default_prompt: "Use $andes-aice-bringup to release the target CPU and start a working Andes ICEman JTAG session."

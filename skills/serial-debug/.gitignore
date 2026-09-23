@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+windows/.runtime/
+windows/logs/
+windows/serial_config.local.psd1
