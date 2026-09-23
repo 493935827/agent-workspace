@@ -8,6 +8,7 @@ backups/
 dist/
 packages/
 manifests/
+work/
 
 # --- Python ---
 __pycache__/
