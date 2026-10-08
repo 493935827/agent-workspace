@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Archive the current conversation, maintain the project's progress index, and automatically commit and push task changes when Git and a remote are configured.
+description: Archive the current conversation, provide an early-start continuation prompt, maintain the project's progress index, and commit and push task changes when Git and a remote are configured.
 argument-hint: "What will the next session be used for?"
 disable-model-invocation: true
 ---
@@ -13,6 +13,12 @@ Archive enough context for another conversation to continue the project. Use two
 2. Read applicable project rules and the current snapshot in `<project-root>/progress/progress.md` if it exists; inspect archive rows only as needed. Before editing, inspect relevant working-tree and staged changes, the current branch, upstream, and remote configuration to distinguish this conversation's work from unrelated changes and select the upload target.
 3. Read earlier handoffs only when needed to resolve a specific gap, identify this conversation's existing archive, or verify a relevant decision. Do not read every archive to prepare a handoff.
 4. Treat invocation arguments as the next conversation's intended focus. Preserve the overall project objective while tailoring the next actions to that focus.
+
+## Let the next conversation start early
+
+Once the project root is known, select the archive path using the naming rules below. Before the longer handoff work, send a short copyable continuation prompt in commentary. Include the absolute project root, this conversation's ID or link and the handoff turn ID when available, the selected archive path, and the intended next focus. Keep that archive path stable for this invocation. This lets the user open the next conversation immediately; do not create one unless the user explicitly asks.
+
+The prompt must tell the next conversation to wait for **this handoff turn** to finish, using `wait_threads` or `read_thread` when available. It may perform independent read-only preparation while waiting. After completion, it must read applicable `AGENTS.md`, reread `progress/progress.md`, follow the archive row for this conversation, and read the selected handoff. Verify that the row links to the expected file and that the archive identifies this conversation. File existence alone is not a completion signal: the archive may exist before the index, validation, or upload finishes. If the handoff turn is still in progress, keep waiting; if it ends without a matching, readable archive, report the missing handoff instead of continuing from an older snapshot. If the source conversation cannot be observed, ask for its link or completion result rather than guessing that the handoff is final.
 
 ## Write the conversation handoff
 
@@ -79,4 +85,4 @@ Manual invocation of this skill authorizes committing the handoff and this conve
 
 ## Return
 
-Return links to the index and this conversation's handoff, the local commit ID (if created), the remote/branch and upload outcome or reason for skipping, followed by a short copyable continuation prompt: read applicable `AGENTS.md`, read the current snapshot in `progress/progress.md`, verify relevant workspace state, then continue the next action; open a linked handoff only if details are missing. Do not paste the entire handoff into the reply or start a new conversation automatically.
+Return links to the index and this conversation's handoff, the local commit ID (if created), the remote/branch and upload outcome or reason for skipping. Repeat the continuation prompt with the final archive path and state that this handoff turn is complete: read applicable `AGENTS.md`, read the current snapshot in `progress/progress.md`, verify relevant workspace state, then continue the next action. Do not paste the entire handoff into the reply or start a new conversation automatically.
