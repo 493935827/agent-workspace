@@ -12,6 +12,7 @@
 - OneNote：7 个笔记本、39 个分区、142 个页面、970 个资源和 68 个原生备份已归档，按敏感数据保管。
 - 分发：私有仓库 `493935827/agent-software-packages` 的 Release `software-2026-10-02` 已发布 4 个附件，远端大小和 SHA-256 均与本地一致。
 - CLI：`agentctl --help` 和各子命令 `--help` 已补充中文用途、参数说明、示例与关键限制；个人机用户 PATH 已加入工作区 `scripts/`，`AGENT_WORKSPACE_ROOT` 已指向工作区根目录，`agentctl doctor` 可从任意目录运行。Windows 启动脚本现会保留命令退出码。
+- CLI 验证：15 个子命令均已实际调用；写入型命令在临时工作区验证，`update` 和 `bootstrap` 使用 `--dry-run`。普通用户 PATH 下 `snapshot` 可保存基线；Codex 运行时额外提供的 `pnpm` 因自身全局 bin 未配置，会令完整扫描返回 Provider error。
 - 安全边界：`user-data/` 与 OneNote 全部排除；MPS Power Manager 机密/NDA 包和企业分发的 GlobalProtect 未上传，公开的代码仓库仍不保存安装介质。
 - 阻塞与下一步：仍缺 AndeSight 5.3.1；受限介质需走公司批准渠道；其他环境可从私有 Release 下载对应 ZIP 并按校验文件复核。
 
