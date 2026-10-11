@@ -174,6 +174,8 @@ import 时如果 doctor 失败，提示里会给出对应的 restore 命令；�
 
 ## 命令参考
 
+运行 `agentctl --help` 查看命令总览；运行 `agentctl <命令> --help` 查看该命令的参数、示例和注意事项。全局 `--env`、`--root` 应放在子命令前。
+
 ### 环境发现、比较与登记
 
 这组命令解决“机器上实际有什么、配置里期望有什么、哪些需要登记”。`resources` 是期望清单，旧 `tools` 仍是 doctor 的可执行文件检查名单。**登记不会安装软件，bootstrap 目前也不会执行 resources 中的安装声明。**

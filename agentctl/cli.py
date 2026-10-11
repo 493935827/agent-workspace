@@ -29,52 +29,96 @@ ERRORS = (
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="agentctl",
-        description="Multi-environment Agent workspace manager.",
+        description="管理多环境 Agent 工作区：初始化、Skill 链接、在线更新、离线迁移与本机资源盘点。",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "使用示例:\n"
+            "  agentctl bootstrap --env personal --dry-run  预览个人环境初始化\n"
+            "  agentctl status                            查看工作区及链接状态\n"
+            "  agentctl --env company diff --full --check 检查公司环境的资源差异\n"
+            "  agentctl export --with-wheels              制作含 Python 依赖的离线包\n"
+            "\n"
+            "运行 agentctl COMMAND --help 查看子命令的参数、示例和注意事项。\n"
+            "全局 --env、--root 放在 COMMAND 前；子命令自己的参数放在 COMMAND 后。"
+        ),
     )
     p.add_argument("--env", dest="env_global", default=None,
-                   help="override environment for this invocation")
-    p.add_argument("--root", default=None, help="workspace root (default: auto-detect)")
-    p.add_argument("--version", action="version", version=f"agentctl {__version__}")
+                   metavar="ENV", help="读取有效配置时指定环境；优先于 AGENTCTL_ENV 和 local.yaml")
+    p.add_argument("--root", default=None, metavar="PATH",
+                   help="工作区查找起点；AGENT_WORKSPACE_ROOT 已设置时优先使用该变量，否则从此路径或当前目录向上查找")
+    p.add_argument("--version", action="version", version=f"agentctl {__version__}",
+                   help="显示 agentctl 版本并退出")
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
     sub.required = True
 
-    sub.add_parser("status", help="show workspace summary")
-    sub.add_parser("version", help="show versions")
-    sub.add_parser("doctor", help="run health checks (PASS/WARN/FAIL)")
+    sub.add_parser("status", help="显示版本、环境、Git、Skill 与链接概况",
+                   description="显示工作区版本、环境来源、Git 状态、Skill 数量和链接健康度。",
+                   epilog="示例: agentctl status")
+    sub.add_parser("version", help="显示 CLI、工作区和 Git 版本",
+                   description="显示 agentctl 版本、工作区 VERSION，以及可用时的 Git 提交。",
+                   epilog="示例: agentctl version\n仅查看 CLI 版本也可用 agentctl --version。",
+                   formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub.add_parser("doctor", help="检查工作区健康状况",
+                   description="执行工作区检查，并按 PASS/WARN/FAIL 输出结果。",
+                   epilog="示例: agentctl doctor")
 
-    up = sub.add_parser("update", help="git pull + relink (online environments)")
-    up.add_argument("--dry-run", action="store_true")
+    up = sub.add_parser("update", help="从 Git 更新并刷新 Skill 链接",
+                        description="联网环境先 fetch，再以 --ff-only 拉取上游提交，并刷新 Skill 链接。",
+                        epilog="示例: agentctl update --dry-run\n离线环境会提示使用 export/import，不执行网络更新。",
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    up.add_argument("--dry-run", action="store_true",
+                    help="仍执行只读 fetch 并列出待拉取提交；不 pull 或刷新链接")
 
-    bp = sub.add_parser("bootstrap", help="initialize/rebuild this machine's environment")
+    bp = sub.add_parser("bootstrap", help="初始化或重建本机工作环境",
+                        description="设置环境标记，准备本地目录、.env 模板和 Python 依赖，刷新 Skill 链接并运行 doctor。",
+                        epilog="示例: agentctl bootstrap --env personal --dry-run\n首次使用须指定 --env；已有环境可从 AGENTCTL_ENV 或 local.yaml 读取。",
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
     bp.add_argument("--env", dest="env", default=None,
-                    help="personal | company | intranet (required on first run)")
-    bp.add_argument("--dry-run", action="store_true")
+                    metavar="ENV", help="要写入 local.yaml 的环境，如 personal、company、intranet")
+    bp.add_argument("--dry-run", action="store_true", help="预览操作，不写入本地文件或安装依赖")
     bp.add_argument("--offline", action="store_true",
-                    help="force offline dependency install (no network)")
+                    help="强制从 packages/wheels 离线安装 Python 依赖")
 
-    lp = sub.add_parser("link", help="(re)link enabled skills into agent directories")
-    lp.add_argument("--dry-run", action="store_true")
-    lp.add_argument("--skill", action="append", help="limit to this skill (repeatable)")
+    lp = sub.add_parser("link", help="建立或刷新启用的 Skill 链接",
+                        description="按当前环境配置，将 skills/ 中的 Skill 链接到 Agent 工具目录。",
+                        epilog="示例: agentctl link --skill python-helper --dry-run\n不指定 --skill 时处理当前环境启用的全部 Skill。",
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    lp.add_argument("--dry-run", action="store_true", help="只显示计划的链接变更")
+    lp.add_argument("--skill", action="append", metavar="NAME",
+                    help="只处理指定 Skill；可重复传入，须为 skills/ 下现有目录")
 
-    ulp = sub.add_parser("unlink", help="remove links created by agentctl")
-    ulp.add_argument("--skill", action="append", help="limit to this skill (repeatable)")
+    ulp = sub.add_parser("unlink", help="移除 agentctl 管理的 Skill 链接",
+                         description="移除当前环境中由 agentctl 管理的 Skill 链接。",
+                         epilog="示例: agentctl unlink --skill python-helper\n不指定 --skill 时处理当前环境启用的全部 Skill。",
+                         formatter_class=argparse.RawDescriptionHelpFormatter)
+    ulp.add_argument("--skill", action="append", metavar="NAME",
+                     help="只处理指定 Skill；可重复传入")
 
-    ep = sub.add_parser("export", help="build an offline bundle zip")
-    ep.add_argument("-o", "--output", default=None, help="output zip path")
+    ep = sub.add_parser("export", help="制作可校验的离线工作区 ZIP",
+                        description="收集工作区文件并扫描疑似 Secret，生成含清单与 SHA-256 校验的离线包。",
+                        epilog="示例: agentctl export --with-wheels -o dist/workspace.zip\n默认输出到 dist/agent-workspace-v<版本>-offline.zip；本地 .env 和 local.yaml 不会入包。",
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ep.add_argument("-o", "--output", default=None, metavar="ZIP", help="指定输出 ZIP 路径")
     ep.add_argument("--with-wheels", action="store_true",
-                    help="pip download python deps into the bundle")
+                    help="调用 pip download，将 Python 依赖包加入 ZIP")
     ep.add_argument("--with-npm", action="store_true",
-                    help="npm pack node deps into the bundle")
-    ep.add_argument("--dry-run", action="store_true")
+                    help="调用 npm pack，将 package.json 中的 Node 依赖包加入 ZIP")
+    ep.add_argument("--dry-run", action="store_true", help="预览文件与依赖，不生成 ZIP 或下载依赖")
 
-    ip = sub.add_parser("import", help="install an offline bundle (intranet path)")
-    ip.add_argument("bundle", help="path to agent-workspace-vX.Y.Z-offline.zip")
-    ip.add_argument("--env", dest="env", default=None, help="set environment after import")
-    ip.add_argument("--dry-run", action="store_true")
-    ip.add_argument("--force", action="store_true", help="allow downgrade")
+    ip = sub.add_parser("import", help="校验并导入离线工作区 ZIP",
+                        description="校验离线包，备份当前工作区，再安装文件、刷新链接并运行 doctor。",
+                        epilog="示例: agentctl import dist/workspace.zip --env intranet --dry-run\n设置本机环境时将 --env 放在 import 后；导入旧版本需显式使用 --force。",
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ip.add_argument("bundle", metavar="ZIP", help="离线包路径，通常为 agent-workspace-vX.Y.Z-offline.zip")
+    ip.add_argument("--env", dest="env", default=None, metavar="ENV", help="导入后设置的本机环境")
+    ip.add_argument("--dry-run", action="store_true", help="校验并预览导入，不写入工作区")
+    ip.add_argument("--force", action="store_true", help="允许导入比当前工作区更旧的版本")
 
-    rp = sub.add_parser("restore", help="restore workspace files from a backup zip")
-    rp.add_argument("backup", help="path under backups/ (from a previous import)")
+    rp = sub.add_parser("restore", help="从导入前备份 ZIP 恢复工作区",
+                        description="使用先前 import 创建的备份 ZIP 恢复工作区文件。",
+                        epilog="示例: agentctl restore backups/<导入前备份>.zip\n此命令不用于恢复 adopt 产生的配置备份。",
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    rp.add_argument("backup", metavar="BACKUP_ZIP", help="先前 import 创建的 backups/ 下备份 ZIP 路径")
 
     discovery.add_parsers(sub)
     return p

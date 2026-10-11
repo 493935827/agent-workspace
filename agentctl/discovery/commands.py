@@ -1,6 +1,7 @@
 """CLI orchestration and a single sanitized output boundary."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -15,37 +16,61 @@ COMMANDS = {"scan", "diff", "snapshot", "adopt", "ignore"}
 
 
 def add_parsers(sub):
+    details = {
+        "scan": (
+            "查询本机已安装资源，并与有效配置比较；不写入状态或配置。",
+            "示例: agentctl scan --full --new\n默认 quick 扫描 uv、pipx、npm、pnpm、vscode；--full 另含 winget。",
+        ),
+        "diff": (
+            "比较本机资源与有效配置中的 resources 声明；不写入状态或配置。",
+            "示例: agentctl --env personal diff --full --check\n默认隐藏 MATCH 项；--all 可显示所有比较结果。",
+        ),
+        "snapshot": (
+            "完整扫描六个 Provider，并保存最近一次发现基线用于后续历史比较。",
+            "示例: agentctl snapshot --dry-run\n任一 Provider 报 error 时保留旧基线；unavailable 可保存为未覆盖。",
+        ),
+        "adopt": (
+            "把已发现且来源明确的资源登记到指定共享 profile；不会安装软件。",
+            "示例: agentctl adopt npm:example --profile personal --dry-run\n只传 --profile 可列候选；指定 ID 或 --all 才写入。--profile 不能是 local。",
+        ),
+        "ignore": (
+            "管理本机的精确资源忽略项，仅隐藏未登记提醒。",
+            "示例: agentctl ignore npm:example\n查看: agentctl ignore --list；移除: agentctl ignore npm:example --remove。",
+        ),
+    }
     for name in ("scan", "diff", "snapshot", "adopt", "ignore"):
-        parser = sub.add_parser(name, help={
-            "scan": "discover installed resources (read-only)",
-            "diff": "compare installed resources with declarations (read-only)",
-            "snapshot": "save a complete discovery baseline",
-            "adopt": "explicitly register discovered resources in a shared profile",
-            "ignore": "manage exact machine-local reminder exclusions",
-        }[name])
-        parser.add_argument("--json", action="store_true")
+        parser = sub.add_parser(name, help=details[name][0], description=details[name][0],
+                                epilog=details[name][1],
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+        parser.add_argument("--json", action="store_true", help="输出单个 JSON 对象，适合脚本读取")
         if name != "snapshot":
-            parser.add_argument("--provider", choices=list(providers.PROVIDERS))
+            parser.add_argument("--provider", choices=list(providers.PROVIDERS), metavar="PROVIDER",
+                                help="限定资源所属 Provider；可选 " + ", ".join(providers.PROVIDERS))
         if name in {"scan", "diff"}:
             mode = parser.add_mutually_exclusive_group()
-            mode.add_argument("--quick", action="store_true")
-            mode.add_argument("--full", action="store_true")
-            parser.add_argument("--all", action="store_true", help="include ignored resources and matches")
-            parser.add_argument("--check", action="store_true", help="exit 1 for drift/missing, 2 for insufficient evidence")
+            mode.add_argument("--quick", action="store_true",
+                              help="快速扫描五个 Provider（默认，不含 winget）")
+            mode.add_argument("--full", action="store_true", help="完整扫描六个 Provider（含 winget）")
+            parser.add_argument("--all", action="store_true", help="包含被忽略项；diff 也显示 MATCH 项")
+            parser.add_argument("--check", action="store_true",
+                                help="发现 DRIFT/MISSING 返回 1；声明资源证据不足返回 2")
         if name == "scan":
-            parser.add_argument("--new", action="store_true", help="show unregistered, non-ignored resources")
+            parser.add_argument("--new", action="store_true", help="只显示未登记且未忽略的资源")
         if name in {"adopt", "ignore"}:
-            parser.add_argument("resources", nargs="*", metavar="[PROVIDER:]ID")
+            parser.add_argument("resources", nargs="*", metavar="[PROVIDER:]ID",
+                                help="资源身份，如 npm:example；使用 --provider 时可省略前缀")
         if name == "adopt":
-            parser.add_argument("--profile", required=True, help="explicit shared target, including common")
-            parser.add_argument("--all", action="store_true")
-            parser.add_argument("--pin-version", action="store_true")
+            parser.add_argument("--profile", required=True, metavar="PROFILE",
+                                help="写入的共享配置层，如 common、personal、company、intranet")
+            parser.add_argument("--all", action="store_true", help="登记扫描范围内所有合格候选；不能同时指定 ID")
+            parser.add_argument("--pin-version", action="store_true",
+                                help="登记时锁定当前版本；版本未知则拒绝写入")
         if name == "ignore":
             mode = parser.add_mutually_exclusive_group()
-            mode.add_argument("--list", action="store_true")
-            mode.add_argument("--remove", action="store_true")
+            mode.add_argument("--list", action="store_true", help="列出本机忽略项")
+            mode.add_argument("--remove", action="store_true", help="从本机忽略项移除指定资源")
         if name in {"snapshot", "adopt", "ignore"}:
-            parser.add_argument("--dry-run", action="store_true")
+            parser.add_argument("--dry-run", action="store_true", help="预览结果，不写入状态或配置")
 
 
 def identities(args) -> set[tuple[str, str]]:
