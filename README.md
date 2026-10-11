@@ -82,6 +82,8 @@ uv run agentctl --version    # 或 .venv/Scripts/python -m agentctl --version
 
 验证安装：`uv run agentctl doctor`。
 
+如需从任意目录直接运行 `agentctl`，将工作区的 `scripts/` 目录加入用户 `PATH`，并把用户环境变量 `AGENT_WORKSPACE_ROOT` 设为工作区根目录；重新打开终端后生效。健康检查使用子命令 `agentctl doctor`，不要写成 `agentctl --doctor`。
+
 ## 5. 三种环境初始化
 
 ```bash

@@ -8,4 +8,5 @@ if exist "%HERE%..\.venv\Scripts\python.exe" (
 ) else (
   python -m agentctl %*
 )
-endlocal
+rem Exiting the batch file also ends setlocal; preserve Python's exit code.
+exit /b %ERRORLEVEL%

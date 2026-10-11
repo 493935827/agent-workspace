@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
             "使用示例:\n"
             "  agentctl bootstrap --env personal --dry-run  预览个人环境初始化\n"
             "  agentctl status                            查看工作区及链接状态\n"
+            "  agentctl doctor                            检查工作区（doctor 是子命令）\n"
             "  agentctl --env company diff --full --check 检查公司环境的资源差异\n"
             "  agentctl export --with-wheels              制作含 Python 依赖的离线包\n"
             "\n"
