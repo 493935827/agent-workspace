@@ -9,7 +9,7 @@
 - 软件与交付：公司 51/52、内网 44/45 项介质就绪；安全子集已拆为通用、公司专用、个人专用三个 ZIP，逐包校验 SHA-256。
 - 开发配套：26 个精确版本 VSIX 与 OneNote MCP 0.1.1 的 115 个 npm 依赖已完成离线准备与验证。
 - OneNote：7 个笔记本、39 个分区、142 个页面、970 个资源和 68 个原生备份已归档，按敏感数据保管。
-- 分发：私有仓库 `493935827/agent-software-packages` 的 Release `software-2026-10-02` 已发布 4 个附件，远端大小和 SHA-256 均与本地一致。
+- 分发：私有仓库 `493935827/agent-software-packages` 的 Release `software-2026-10-02` 已发布 4 个附件；另在 `pixpin-3.5.5.1` 发布 PixPin Windows 官方安装包与校验文件，远端大小和 SHA-256 均与本地一致。
 - CLI：中文 help 已补齐；用户 PATH 与 `AGENT_WORKSPACE_ROOT` 已配置，可从任意目录运行 `agentctl doctor`；Windows 启动脚本保留退出码。
 - CLI 验证：15 个子命令均已实际调用；文件、配置及链接写入只在临时工作区，`update --dry-run` 执行 fetch。普通用户 PATH 下临时 `snapshot` 可保存基线；Codex fallback `pnpm` 会导致完整扫描报错。
 - 安全边界：`user-data/`、OneNote 和受限安装介质未上传公开代码仓库。
