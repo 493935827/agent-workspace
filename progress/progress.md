@@ -11,7 +11,7 @@
 - 开发配套：26 个精确版本 VSIX 和 OneNote MCP 0.1.1 的 115 个 npm 依赖已完成离线准备与验证。
 - OneNote：7 个笔记本、39 个分区、142 个页面、970 个资源和 68 个原生备份已归档，按敏感数据保管。
 - 分发：私有仓库 `493935827/agent-software-packages` 的 Release `software-2026-10-02` 已发布 4 个附件，远端大小和 SHA-256 均与本地一致。
-- CLI：`agentctl --help` 和各子命令 `--help` 已补充中文用途、参数说明、示例与关键限制。
+- CLI：`agentctl --help` 和各子命令 `--help` 已补充中文用途、参数说明、示例与关键限制；个人机用户 PATH 已加入工作区的 `scripts/`，可从任意目录运行 `agentctl`。
 - 安全边界：`user-data/` 与 OneNote 全部排除；MPS Power Manager 机密/NDA 包和企业分发的 GlobalProtect 未上传，公开的代码仓库仍不保存安装介质。
 - 阻塞与下一步：仍缺 AndeSight 5.3.1；受限介质需走公司批准渠道；其他环境可从私有 Release 下载对应 ZIP 并按校验文件复核。
 
