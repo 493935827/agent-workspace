@@ -1,10 +1,11 @@
 # 项目进度
 
-最后更新：2026-10-12 17:57（Asia/Shanghai）
+最后更新：2026-10-13 14:40（Asia/Shanghai）
 
 ## 当前概况
 
 - 当前目标：维护可跨个人、公司和内网环境重建的 Agent/Skill 与开发软件；软件安全子集已通过私有 GitHub Release 分发。
+- Skill 更新（2026-10-13）：`serial-debug` 的 GUI 从 50 行服务薄客户端换成 serial-gui Qt 工作台（内置直连与共享服务两种用法、agent 接管按钮），`tests/test_serial_gui.py` 重写为工作台↔真实 SerialService 契约测试（无 PySide6 自动跳过）；skill 全套 18 项通过，agent-workspace 提交 `6cb72ab`，规范仓库 serial-debug 已同步推送 `c3dc773`。上游 serial-gui 同日完成 Qt 主分支切换（`54829dc`）与服务会话功能（`50fe938`）。
 - Skill 更新（2026-10-12，公司机）：新增社区技能 ui-ux-pro-max（UI/UX 设计智能库，73 文件）入库 `skills/` 并注册 `configs/common.yaml`；源目录 45→46、公共启用 40→41，公司机 junction 实测 43/43 健康，其余环境待各机链接后更新计数；本次即 update 缺陷所述"新增 skill 需手动 link"场景，缺陷本身未动。
 - Skill：项目共 45 个源目录；公共启用 40 个，personal/company/intranet 分别启用 42/42/41，个人机链接 42/42 健康。
 - 软件与交付：公司 51/52、内网 44/45 项介质就绪；安全子集已拆为通用、公司专用、个人专用三个 ZIP，逐包校验 SHA-256。
