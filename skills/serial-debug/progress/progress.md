@@ -1,9 +1,10 @@
 # 项目进度
 
-最后更新：2026-10-14 11:15（Asia/Shanghai）
+最后更新：2026-10-14 11:30（Asia/Shanghai）
 
 ## 当前概况
 
+- 日志降噪（2026-10-14）：直发模式回车不再打印「按键字节 0d '\r'」TX 行；空提交（裸回车、空命令、空宏行）不生成 TX 记录但字节数照常累计；行首无可见内容的 RX 片段（回车回显 CRLF、peer 写入的裸 CR）不再渲染成纯时间戳空行，行中空片仍正常收尾当前行。显示过滤不影响 records 与落盘日志。新增 `tests/test_ui_log_noise.py`（7 项），全套 35 项通过（offscreen 约 39 秒）。
 - 目标 / 当前阶段：Issue #1 共享串口工具已完成 Phase 1 服务端；2026-10-13 人工 GUI 升级为 Qt 工作台；同日完成统一风格改造（详见 docs/design-system.md）；2026-10-14 完成 skill 完整工作流实测与工作流级 bug 修复。
 - 工作流全链路验证（2026-10-14）：Windows 控制器（Status/Start/Send/Ports/Stop，PID 跟踪与进程清理含 uv shim 场景）、bridge/connect/send 三客户端、managed service 生命周期（released 启动、serial.open、send、send.hex、serial.close、断连保护、service.stop --expect-pid）、agent 租约（acquire、占用拒绝、带凭证发送、release）全部实测通过；Conserver 未安装（按规则跳过）。
 - 真实硬件验收（COM6，FTDI USB 串口）：被动波特率检测跑完 8 候选×3 轮全程无输出（正确拒绝猜测）；115200 打开成功，`help` TX 已写入（exit=0），终端与日志无 RX——对端设备不发送数据，设备级应答往返仍需有输出的目标板配合（人工验收项保留）。
@@ -22,6 +23,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-14 / 日志降噪 | 回车按键字节与空行不再打印（TX 静默提交 + 行首空白 RX 片段跳过渲染，记录与日志保留）；新增 7 项回归测试，全套 35 项通过 | （本次对话，未单独归档） |
 | 2026-10-14 / 工作流全链路实测与修复 | loop:// 与 COM6 实测控制器/桥/客户端/服务生命周期/agent 租约；修复 uv venv 安装文档、serial_gui.cmd .venv 优先、PS 5.1 JSON 传参说明、troubleshooting 陈旧参数；28 项测试通过（offscreen 27s） | （本次对话，未单独归档） |
 | 2026-10-13 / 统一风格与可访问性改造 | 定档 Fluent 2 深色优先；token AA 修复、深色默认、Tab/状态栏错误/对话框行内校验修复；新增对比度与风格回归测试；测试基建提速 287s→27s | [Fluent2 style pass](handoff-20261014-110900-fluent2-style-pass.md) |
 | 2026-10-13 / Qt 工作台替换薄客户端 | Qt 工作台加入服务会话与 agent 接管；skill 内置并重写集成测试；18 项测试通过 | （本次对话，未单独归档） |

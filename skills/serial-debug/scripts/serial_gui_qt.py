@@ -618,7 +618,11 @@ class Workbench(Preview):
             elif kind == 'sent':
                 token, raw, shown = payload
                 s['sent'] += len(raw)
-                self.add_record(index, 'TX', shown + '\n', stamp, raw=raw)
+                # Empty submissions (Enter on a bare prompt, blank macro lines,
+                # empty HEX input) carry no text to show; stay silent instead
+                # of printing bare TX lines. Byte counters still track them.
+                if shown:
+                    self.add_record(index, 'TX', shown + '\n', stamp, raw=raw)
                 if self.macro_job and token is self.macro_job.get('token'):
                     self.macro_ack()
             elif kind == 'peer_tx':
@@ -821,7 +825,11 @@ class Workbench(Preview):
         if 0 <= index < len(self.sessions):
             s = self.sessions[index]
             raw = value.encode('utf-8')
-            self.write_payload(s, raw, f'按键字节 {raw.hex(" ")} {value!r}')
+            # Enter only submits the current line; the device echo and the
+            # fresh prompt already show that submission, so its keypress
+            # record stays silent instead of printing 按键字节 noise.
+            shown = None if value in ('\r', '\n') else f'按键字节 {raw.hex(" ")} {value!r}'
+            self.write_payload(s, raw, shown)
 
     def eventFilter(self, watched, event):
         if self.ready and event.type() == QEvent.Type.KeyPress:
@@ -956,7 +964,16 @@ class Workbench(Preview):
             pieces = text.split('\n')
             for i, part in enumerate(pieces):
                 newline = i < len(pieces)-1
+                # A piece with no visible content at line start would render
+                # as a bare timestamped blank line — the CRLF echo of Enter
+                # between prompts (the parser normalizes CR to LF, and peer
+                # writes can still carry raw CR); skip it. Mid-line such a
+                # piece still closes the current line, and a whitespace tail
+                # without a newline may hold erasable characters, so both of
+                # those must keep rendering.
                 if not part and not newline:
+                    continue
+                if newline and s['display_line_start'] and not part.strip():
                     continue
                 if s['display_line_start']:
                     fmt = QTextCharFormat()

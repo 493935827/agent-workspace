@@ -1921,7 +1921,9 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
     def direct_send(self, index, value):
         if index == self.active and self.sessions[index]['state'] == 'connected':
             self.sessions[index]['sent'] += len(value.encode('utf-8'))
-            self.append(index, 'TX', f'按键字节  {value.encode("utf-8").hex(" ")}  {value!r}', 'text_primary')
+            # Enter submits silently, mirroring the real workbench.
+            if value not in ('\r', '\n'):
+                self.append(index, 'TX', f'按键字节  {value.encode("utf-8").hex(" ")}  {value!r}', 'text_primary')
 
     def browse_history(self, direction):
         if self.active < 0:
