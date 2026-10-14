@@ -48,7 +48,13 @@ DENY_SUFFIXES = (".pyc", ".pyo", ".zip", ".egg-info")
 CANARY_MARKER = "# agentctl-canary"
 
 SECRET_PATTERNS = [
-    (re.compile(r"sk-[A-Za-z0-9_-]{20,}"), "OpenAI-style API key"),
+    # 'sk-' must start a standalone token (not sit inside a hyphenated word
+    # like 'task-based-...'), may carry up to two short alnum prefix
+    # segments (sk-proj-, sk-ant-api03-, sk-or-v1-), then needs a 20+ char
+    # alphanumeric body. Keeps real keys detectable while ignoring URL
+    # slugs such as 'task-based-asynchronous-programming'.
+    (re.compile(r"(?<![A-Za-z0-9_-])sk-(?:[A-Za-z0-9]{1,16}-){0,2}[A-Za-z0-9]{20,}"),
+     "OpenAI-style API key"),
     (re.compile(r"ghp_[A-Za-z0-9]{30,}"), "GitHub token"),
     (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "GitHub fine-grained token"),
     (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS access key id"),

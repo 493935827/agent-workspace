@@ -1,10 +1,11 @@
 # 项目进度
 
-最后更新：2026-10-13 16:52（Asia/Shanghai）
+最后更新：2026-10-14 13:40（Asia/Shanghai）
 
 ## 当前概况
 
 - 当前目标：维护可跨个人、公司和内网环境重建的 Agent/Skill 与开发软件；软件安全子集已通过私有 GitHub Release 分发。
+- CLI 修复（2026-10-14）：`export` 密钥扫描误报已修——原 OpenAI 正则把 Microsoft Learn URL 词组 task-based-asynchronous-programming（含 sk-based-… 子串）当成 API key，拦截了 ui-ux-pro-max 的 winui/wpf CSV；正则收紧为独立 token + 至多两段短前缀 + 20 位字母数字主体，sk-/sk-proj-/sk-ant-api03-/sk-or-v1- 真实键仍拦截；新增 2 条回归测试（test_bundle.py 9 项过），真实工作区 378 文件扫描通过。
 - Skill 更新（2026-10-13）：`serial-debug` 的 GUI 从 50 行服务薄客户端换成 serial-gui Qt 工作台（内置直连与共享服务两种用法、agent 接管按钮），`tests/test_serial_gui.py` 重写为工作台↔真实 SerialService 契约测试（无 PySide6 自动跳过）；skill 全套 18 项通过，agent-workspace 提交 `6cb72ab`，规范仓库 serial-debug 已同步推送 `c3dc773`。上游 serial-gui 同日完成 Qt 主分支切换（`54829dc`）与服务会话功能（`50fe938`）。
 - 仓库整理（2026-10-13）：serial-gui 本地开发克隆 `D:\App\serial_tool\serial-gui` 已删除（删前核实工作树干净、main=`878fe8f` 已推送、skill 内置 5 个 Qt 文件与仓库逐字节一致），Qt 工作台以 skill 内置副本与远程 `493935827/serial-gui` 为准；其 `.venv`（PySide6）随克隆移除，skill GUI 测试需在 workspace `.venv` 补装 PySide6；`D:\App\serial_tool\serial-gui.7z` 为 10-10 旧快照保留（未含最新 4 提交，远端有）。
 - Skill 更新（2026-10-12，公司机）：新增社区技能 ui-ux-pro-max（UI/UX 设计智能库，73 文件）入库 `skills/` 并注册 `configs/common.yaml`；源目录 45→46、公共启用 40→41，公司机 junction 实测 43/43 健康，其余环境待各机链接后更新计数；本次即 update 缺陷所述"新增 skill 需手动 link"场景，缺陷本身未动。

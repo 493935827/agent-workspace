@@ -85,6 +85,31 @@ def test_secret_scan_allows_marked_canary_lines(ws, tmp_path):
     assert out.exists()
 
 
+def test_secret_scan_ignores_hyphenated_url_slugs(ws, tmp_path):
+    # regression: Microsoft Learn URLs in ui-ux-pro-max stack CSVs end in
+    # 'task-based-asynchronous-programming', whose 'sk-based-...' substring
+    # used to trip the OpenAI-key pattern and block export
+    (ws / "skills" / "alpha" / "winui.csv").write_text(
+        "28,Threading,Use Task.Run for CPU-bound work,High,"
+        "https://learn.microsoft.com/en-us/dotnet/standard/parallel-programming/"
+        "task-based-asynchronous-programming,active,2026-08-13\n",
+        encoding="utf-8")
+    out = export_bundle(ws, output=tmp_path / "b.zip")  # must not raise
+    assert out.exists()
+
+
+def test_secret_scan_blocks_prefixed_api_keys(ws, tmp_path):
+    for i, key in enumerate((
+        "sk-proj-q1w2e3r4t5y6u7i8o9p0z1x2",       # agentctl-canary
+        "sk-ant-api03-q1w2e3r4t5y6u7i8o9p0z1x2",  # agentctl-canary
+        "sk-or-v1-q1w2e3r4t5y6u7i8o9p0z1x2",      # agentctl-canary
+    )):
+        (ws / "skills" / "alpha" / f"key{i}.md").write_text(
+            f"token: {key}\n", encoding="utf-8")
+    with pytest.raises(BundleError, match=r"(?s)key0\.md.*key1\.md.*key2\.md"):
+        export_bundle(ws, output=tmp_path / "b.zip")
+
+
 def test_export_dry_run_writes_nothing(ws, tmp_path):
     out = tmp_path / "b.zip"
     export_bundle(ws, output=out, dry_run=True)
