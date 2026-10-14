@@ -27,7 +27,7 @@ from serial_service_client import Client as ServiceClient, RemoteError as Servic
 
 TIME_FORMATS = ('时分秒', '时分秒.毫秒', '日期 时分秒', '日期 时分秒.毫秒')
 DEFAULT_OPTIONS = dict(timestamps=True, time_format=TIME_FORMATS[1], wrap=False,
-    show_rx=True, show_tx=True, display_mode='ASCII', log_level=0,
+    show_rx=True, show_tx=True, show_keybytes=False, display_mode='ASCII', log_level=0,
     rx_encoding='UTF-8', encoding='UTF-8', ending='CR', auto_scroll=True,
     case=False, whole=False, tags=[], paused=False, save_policy='手动保存',
     log_timestamp=True, log_format=TIME_FORMATS[1], log_append=False,
@@ -344,7 +344,7 @@ class Workbench(Preview):
         s = self.sessions[self.active]
         s.update(draft=self.command.text(), mode=self.mode.currentIndex(), query=self.search.text())
         o = s['options']
-        for key in ('timestamps', 'wrap', 'show_rx', 'show_tx', 'auto_scroll'):
+        for key in ('timestamps', 'wrap', 'show_rx', 'show_tx', 'show_keybytes', 'auto_scroll'):
             o[key] = getattr(self, key).isChecked()
         for key in ('display_mode', 'rx_encoding', 'encoding', 'ending', 'save_policy'):
             o[key] = getattr(self, key).currentText()
@@ -359,7 +359,7 @@ class Workbench(Preview):
         self.active = -1
         s = self.sessions[index]
         o = s['options']
-        for key in ('timestamps', 'wrap', 'show_rx', 'show_tx', 'auto_scroll'):
+        for key in ('timestamps', 'wrap', 'show_rx', 'show_tx', 'show_keybytes', 'auto_scroll'):
             w = getattr(self, key)
             w.blockSignals(True)
             w.setChecked(o[key])
@@ -825,10 +825,12 @@ class Workbench(Preview):
         if 0 <= index < len(self.sessions):
             s = self.sessions[index]
             raw = value.encode('utf-8')
-            # Enter only submits the current line; the device echo and the
-            # fresh prompt already show that submission, so its keypress
-            # record stays silent instead of printing 按键字节 noise.
-            shown = None if value in ('\r', '\n') else f'按键字节 {raw.hex(" ")} {value!r}'
+            # Keypress records are opt-in: by default nothing is printed per
+            # key (the device echo already shows what was typed, and control
+            # keys like Enter or Backspace are pure noise between prompts).
+            # The 显示按键字节 switch prints every keypress byte for
+            # debugging devices that do not echo.
+            shown = f'按键字节 {raw.hex(" ")} {value!r}' if s['options']['show_keybytes'] else None
             self.write_payload(s, raw, shown)
 
     def eventFilter(self, watched, event):

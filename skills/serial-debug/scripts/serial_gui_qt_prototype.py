@@ -1106,7 +1106,9 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.show_tx = QCheckBox('显示 TX')
         self.show_tx.setChecked(True)
         self.show_tx.toggled.connect(self.rerender)
-        for checkbox in (self.timestamps, self.wrap, self.show_rx, self.show_tx):
+        self.show_keybytes = QCheckBox('显示按键字节')
+        self.show_keybytes.setToolTip('直接发送模式下逐键打印 TX 按键字节（如 按键字节 08 \'\\x08\'）；默认关闭，设备回显已能看到按键效果，控制键回显属于提示符之间的噪声')
+        for checkbox in (self.timestamps, self.wrap, self.show_rx, self.show_tx, self.show_keybytes):
             settings_layout.addWidget(checkbox)
         self.display_mode = QComboBox()
         self.display_mode.addItems(['ASCII', 'HEX'])
@@ -1921,8 +1923,8 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
     def direct_send(self, index, value):
         if index == self.active and self.sessions[index]['state'] == 'connected':
             self.sessions[index]['sent'] += len(value.encode('utf-8'))
-            # Enter submits silently, mirroring the real workbench.
-            if value not in ('\r', '\n'):
+            # Mirror the real workbench: per-key TX records are opt-in.
+            if self.show_keybytes.isChecked():
                 self.append(index, 'TX', f'按键字节  {value.encode("utf-8").hex(" ")}  {value!r}', 'text_primary')
 
     def browse_history(self, direction):

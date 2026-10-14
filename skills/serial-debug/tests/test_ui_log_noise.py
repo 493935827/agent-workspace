@@ -1,10 +1,11 @@
-"""Regression tests for log noise filtering (silent Enter pass).
+"""Regression tests for log noise filtering (silent keypress pass).
 
-Covers: direct-key Enter submits without a 按键字节 TX record, empty
-command submissions stay silent, the Enter echo closes the prompt line
-instead of printing a blank one, and bare blank RX pieces never render
-as standalone timestamped lines. Records keep full text; only the view
-is filtered.
+Covers: direct-key records (按键字节) are opt-in via the 显示按键字节
+switch and default to silent for every key including Enter and Backspace,
+empty command submissions stay silent, the Enter echo closes the prompt
+line instead of printing a blank one, and bare blank RX pieces never
+render as standalone timestamped lines. Records keep full text; only the
+view is filtered.
 """
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -75,17 +76,29 @@ class LogNoiseTests(unittest.TestCase):
     def tx_records(self, s):
         return [r for r in s['records'] if r['tag'] == 'TX']
 
-    def test_direct_enter_is_queued_without_display_text(self):
+    def test_direct_keypresses_are_silent_by_default(self):
         window = self.make_window()
         index, s, worker = self.connect_fake(window)
-        window.direct_send(index, '\r')
-        window.direct_send(index, 'a')
-        token, payload, shown = worker.commands.get_nowait()
-        self.assertEqual(payload, b'\r')
-        self.assertIsNone(shown, 'Enter must not carry a 按键字节 display text')
-        token, payload, shown = worker.commands.get_nowait()
-        self.assertEqual(payload, b'a')
-        self.assertIn('按键字节', shown)
+        for value in ('\r', '\x08', 'a'):
+            window.direct_send(index, value)
+        for expected in (b'\r', b'\x08', b'a'):
+            token, payload, shown = worker.commands.get_nowait()
+            self.assertEqual(payload, expected)
+            self.assertIsNone(shown, f'{expected!r} must stay silent by default')
+
+    def test_keypress_records_follow_the_show_keybytes_switch(self):
+        window = self.make_window()
+        index, s, worker = self.connect_fake(window)
+        s['options']['show_keybytes'] = True
+        for value in ('\r', '\x08'):
+            window.direct_send(index, value)
+        for expected in (b'\r', b'\x08'):
+            token, payload, shown = worker.commands.get_nowait()
+            self.assertEqual(payload, expected)
+            self.assertIn('按键字节', shown)
+            window.events.put((worker, 'sent', (token, payload, shown), datetime.now()))
+        window.poll()
+        self.assertEqual(len(self.tx_records(s)), 2)
 
     def test_sent_event_without_display_text_adds_no_record(self):
         window = self.make_window()
