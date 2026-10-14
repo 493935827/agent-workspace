@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Archive the current conversation, provide an early-start continuation prompt, maintain the project's progress index, and commit and push task changes when Git and a remote are configured.
+description: Archive the current conversation, provide an early-start continuation prompt, maintain the project's progress index, and commit and push task changes when Git and a remote are configured; on intranet machines, commit only after the user asks.
 argument-hint: "What will the next session be used for?"
 disable-model-invocation: true
 ---
@@ -70,11 +70,16 @@ Ensure the project-root `AGENTS.md` contains one concise navigation rule, updati
 
 If no project-root `AGENTS.md` exists, create a minimal one containing this rule. Preserve unrelated instructions and explicit invocation policies. Progress archives are persistent project records, not temporary files to clean up.
 
-## Verify and automatically upload
+## Verify and upload
 
 Check that the handoff exists, the updated index links to it correctly, the snapshot agrees with known evidence, earlier archive rows are preserved, and the navigation rule points to the correct index.
 
-Manual invocation of this skill authorizes committing the handoff and this conversation's task changes and ordinarily pushing them to the project's configured remote, including GitHub, without asking again. A current user instruction to keep work local or skip commit/push takes precedence. Use Git transport; installing or authenticating the GitHub CLI is not required when Git push already works.
+Commit authorization depends on the machine's zone. Outside the offline zone, manual invocation of this skill authorizes committing the handoff and this conversation's task changes and ordinarily pushing them to the project's configured remote, including GitHub, without asking again. The offline zone is a machine whose agentctl environment resolves to a profile with `network.internet: false` — currently `intranet`. Read the machine's environment from `AGENTCTL_ENV`, or from `environment:` in `local.yaml` at the agent workspace root (`AGENT_WORKSPACE_ROOT` names that root; `agentctl status` prints the environment); an unresolved machine counts as online. Inside the offline zone, this skill leaves git to the user:
+
+- By default, finish the local handoff with this conversation's changes uncommitted in the working tree, and say so in the reply.
+- Commit only after the user has explicitly asked for a commit in this conversation; that first request stands for the rest of the conversation, so later handoffs commit by default.
+
+A current user instruction to keep work local or skip commit/push takes precedence. Use Git transport; installing or authenticating the GitHub CLI is not required when Git push already works. When committing is authorized — outside the offline zone, or inside it after the user's request — follow these rules:
 
 1. If the project is not in a Git repository, finish the local handoff and report that upload was skipped. Do not initialize a repository or create a remote automatically. If Git exists but no remote is configured, make the scoped local commit below and report that no upload target exists.
 2. Prefer the current branch's configured remote upstream. If it has none, use an explicitly configured push remote (`branch.<name>.pushRemote`, then `remote.pushDefault`), otherwise the sole configured remote, and target the same branch name with `--set-upstream`. With multiple remotes and no configured selection, detached HEAD, or a local-only upstream, finish the local handoff and ask only for the unresolved destination. Never guess a repository or publish other branches or tags.
