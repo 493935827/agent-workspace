@@ -3,3 +3,5 @@ __pycache__/
 windows/.runtime/
 windows/logs/
 windows/serial_config.local.psd1
+scripts/serial_qt_settings*.json
+scripts/logs/

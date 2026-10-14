@@ -112,8 +112,8 @@
       },
       "text_secondary": {
         "token": "colorNeutralForeground2",
-        "description": "Secondary text and ordinary icons. Preview light override derived from the user reference.",
-        "light": "#738097",
+        "description": "Secondary text and ordinary icons. Light value passes 4.5:1 on canvas and surface_secondary.",
+        "light": "#5b6b82",
         "dark": "#d6d6d6"
       },
       "text_tertiary": {
@@ -130,8 +130,8 @@
       },
       "text_disabled": {
         "token": "colorNeutralForegroundDisabled",
-        "description": "Disabled text.",
-        "light": "#bdbdbd",
+        "description": "Disabled text. WCAG-exempt; light value kept legible at 2.8:1.",
+        "light": "#919191",
         "dark": "#5c5c5c"
       },
       "text_on_brand": {
@@ -250,8 +250,8 @@
       },
       "brand_background": {
         "token": "colorBrandBackground",
-        "description": "Primary brand action background. Preview light override derived from the user reference.",
-        "light": "#087ff5",
+        "description": "Primary brand action background. Official Fluent value; white text passes 4.5:1.",
+        "light": "#0f6cbd",
         "dark": "#115ea3"
       },
       "brand_background_hover": {
@@ -292,8 +292,8 @@
       },
       "brand_foreground": {
         "token": "colorBrandForeground1",
-        "description": "Primary brand text/icon. Preview light override derived from the user reference.",
-        "light": "#087ff5",
+        "description": "Primary brand text/icon. Official Fluent value; passes 4.5:1 on light canvas.",
+        "light": "#0f6cbd",
         "dark": "#479ef5"
       },
       "brand_foreground_secondary": {
@@ -448,9 +448,9 @@
       },
       "danger_foreground": {
         "token": "colorStatusDangerForeground1",
-        "description": "Danger foreground.",
+        "description": "Danger foreground. Dark value passes 4.5:1 on dark canvas.",
         "light": "#b10e1c",
-        "dark": "#dc626d"
+        "dark": "#e8707a"
       },
       "danger_foreground_inverted": {
         "token": "colorStatusDangerForegroundInverted",

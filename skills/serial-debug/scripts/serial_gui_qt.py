@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
     QTextEdit, QWidget)
 
 from serial_common import AlertMonitor, AnsiLogParser, parse_macro_line
-from serial_gui_qt_prototype import Preview, icon, parse_hex, row
+from serial_gui_qt_prototype import Preview, icon, parse_hex, row, set_role
 from serial_service_client import Client as ServiceClient, RemoteError as ServiceError
 
 TIME_FORMATS = ('时分秒', '时分秒.毫秒', '日期 时分秒', '日期 时分秒.毫秒')
@@ -223,6 +223,7 @@ class Workbench(Preview):
         self.detecting = False
         self._closing = False
         self._restoring = False
+        self._status_error = None
         self.notice_windows = []
         self.named_macros = {}
         super().__init__(**kwargs)
@@ -466,18 +467,26 @@ class Workbench(Preview):
             w.setEnabled(s['state'] not in ('connected', 'connecting') and not s.get('worker'))
             widgets[key] = w
             f.addRow(title, w)
-        self.dialog_buttons(d, f)
-        if d.exec():
+        buttons = self.dialog_buttons(d, f)
+        buttons.accepted.disconnect()
+        show_error = self.inline_form_error(f)
+
+        def accept():
             values = {k: w.currentText().strip() for k, w in widgets.items()}
             try:
-                if not values['port'] or int(values['baud']) <= 0:
-                    raise ValueError('请输入串口及正整数波特率')
-                if any(other is not s and other['port'].casefold() == values['port'].casefold() for other in self.sessions):
-                    raise ValueError('该串口已有会话')
-            except ValueError as exc:
-                self.report_error(str(exc))
+                baud = int(values['baud'])
+            except ValueError:
+                baud = 0
+            if not values['port'] or baud <= 0:
+                show_error('请输入串口及正整数波特率')
+                return
+            if any(other is not s and other['port'].casefold() == values['port'].casefold() for other in self.sessions):
+                show_error('该串口已有会话')
                 return
             s.update(values)
+            d.accept()
+        buttons.accepted.connect(accept)
+        if d.exec():
             self.refresh_devices()
             self.title.setText(s['port'])
             for i in range(self.tabs.count()):
@@ -511,17 +520,33 @@ class Workbench(Preview):
         baud.setCurrentText('57600')
         for title, w in [('服务地址（仅限本机）', host), ('控制端口', control), ('目标串口', port), ('波特率', baud)]:
             f.addRow(title, w)
-        self.dialog_buttons(d, f)
+        buttons = self.dialog_buttons(d, f)
+        buttons.accepted.disconnect()
+        show_error = self.inline_form_error(f)
+
+        def accept():
+            try:
+                control_port = int(control.text().strip() or '8889')
+            except ValueError:
+                control_port = 0
+            try:
+                baud_value = int(baud.currentText().strip())
+            except ValueError:
+                baud_value = 0
+            device = port.currentText().strip()
+            if not device or baud_value <= 0:
+                show_error('请填写目标串口和正整数波特率')
+                return
+            if control_port <= 0:
+                show_error('控制端口需为正整数')
+                return
+            d.accept()
+        buttons.accepted.connect(accept)
         if not d.exec():
             return
-        try:
-            service = dict(host=host.text().strip() or '127.0.0.1', control=int(control.text().strip() or '8889'),
-                           device=port.currentText().strip(), baud=baud.currentText().strip())
-            if not service['device'] or int(service['baud']) <= 0:
-                raise ValueError('请填写目标串口和正整数波特率')
-        except ValueError as exc:
-            self.report_error(str(exc))
-            return
+        service = dict(host=host.text().strip() or '127.0.0.1',
+                       control=int(control.text().strip() or '8889'),
+                       device=port.currentText().strip(), baud=baud.currentText().strip())
         name = f"service:{service['host']}:{service['control']}/{service['device']}"
         index = self.create_session(name)
         self.sessions[index]['service'] = service
@@ -801,8 +826,10 @@ class Workbench(Preview):
     def eventFilter(self, watched, event):
         if self.ready and event.type() == QEvent.Type.KeyPress:
             if watched is self.command and event.key() == Qt.Key.Key_Tab:
-                self.expand_macro()
-                return True
+                # Tab expands a matching macro; without a match it stays a
+                # normal focus traversal key instead of trapping the cursor.
+                if self.expand_macro():
+                    return True
             if watched in self.views:
                 index = self.views.index(watched)
                 if watched.direct:
@@ -848,14 +875,25 @@ class Workbench(Preview):
             status += ' · 宏占用中'
         if self.detecting:
             status += ' · 等待新设备插入'
-        self.state.setText(status)
+        error = self._status_error
+        if error and error[1] < time.monotonic():
+            error = self._status_error = None
+        if error:
+            self.state.setText(error[0])
+            set_role(self.state, 'danger')
+        else:
+            self.state.setText(status)
+            set_role(self.state, 'warning' if self.paused else 'muted')
         self.logging_action.setText('停止持续日志' if s.get('log_file') else '开始持续日志…')
         self.macro_run.setEnabled(s['state'] == 'connected' and self.macro_job is None)
 
     def report_error(self, text):
         if self.ready and self.active >= 0:
             self.append(self.active, 'ERROR', text)
-            self.state.setText(text)
+            # The status bar is rewritten by every poll; hold the error there
+            # in danger color for a few seconds instead of losing it in 30 ms.
+            self._status_error = (text, time.monotonic() + 8)
+            self.update_state()
 
     def append(self, index, tag, text, role='text_primary', stamp=None):
         if not self.ready:
@@ -1179,11 +1217,12 @@ class Workbench(Preview):
             return AlertMonitor.validate({**{k:w.isChecked() for k,w in flags.items()},
                 **{k:w.text() or '0' for k,w in values.items()}, 'keywords':keywords.toPlainText()})
         test = QPushButton('测试提醒方式')
+        show_error = self.inline_form_error(f)
         def preview():
             try:
                 self.notify_alerts(s, ['测试提醒'], read())
             except ValueError as exc:
-                QMessageBox.warning(d, '设置无效', str(exc))
+                show_error(str(exc))
         test.clicked.connect(preview)
         f.addRow(test)
         buttons = self.dialog_buttons(d, f)
@@ -1192,7 +1231,7 @@ class Workbench(Preview):
             try:
                 s['alerts'].options = read()
             except ValueError as exc:
-                QMessageBox.warning(d, '设置无效', str(exc))
+                show_error(str(exc))
                 return
             self.reset_alerts()
             d.accept()
@@ -1378,10 +1417,11 @@ class Workbench(Preview):
         f.addRow('命令（支持逐行 port / delay）', body)
         buttons = self.dialog_buttons(d, f)
         buttons.accepted.disconnect()
+        show_error = self.inline_form_error(f)
         def accept():
             new_name = name.text().strip()
             if not new_name or any(n == new_name and (not exists or i != index) for i,(n,_) in enumerate(self.macros)):
-                QMessageBox.warning(d, '名称无效', '名称不能为空或与其他宏重复')
+                show_error('名称不能为空或与其他宏重复')
                 return
             if exists:
                 self.macros[index] = (new_name, desc.text())
@@ -1430,7 +1470,7 @@ class Workbench(Preview):
         if body is None and any(n == name for n,_ in self.macros):
             body = name
         if body is None:
-            return
+            return False
         if '\n' in body or '\r' in body:
             self.macro_text.setPlainText(body)
             if self.editor.isHidden():
@@ -1438,6 +1478,7 @@ class Workbench(Preview):
             self.macro_text.setFocus()
         else:
             self.command.setText(body)
+        return True
 
     def persist_macros(self):
         if not self.persist or not self.ready:
@@ -1620,7 +1661,7 @@ class Workbench(Preview):
             active = data.get('active',0)
             self.switch(active if isinstance(active,int) and 0 <= active < len(self.sessions) else 0)
             self.devices.setCurrentRow(self.active)
-            self.theme(bool(data.get('dark',False)))
+            self.theme(bool(data.get('dark', True)))
             self.set_zoom(int(data.get('zoom',125)))
             self.set_log_zoom(int(data.get('log_zoom',100)))
             self.macro_text.setPlainText(str(data.get('macro_text','')))
@@ -1693,6 +1734,24 @@ class Workbench(Preview):
         buttons.rejected.connect(dialog.reject)
         layout.addRow(buttons)
         return buttons
+
+    @staticmethod
+    def inline_form_error(layout):
+        """Attach an inline validation message to a QFormLayout dialog.
+
+        Returns show(message): keep the entered values, surface the error next
+        to the fields, and leave the dialog open for correction.
+        """
+        error = QLabel('')
+        error.setWordWrap(True)
+        set_role(error, 'danger')
+        error.hide()
+        layout.addRow(error)
+
+        def show(message):
+            error.setText(message)
+            error.show()
+        return show
 
 
 def main():

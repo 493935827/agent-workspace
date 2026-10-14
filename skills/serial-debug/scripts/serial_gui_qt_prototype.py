@@ -704,7 +704,7 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.macros = [('status', '查询系统状态'), ('help', '显示帮助信息'), ('version', '查询固件版本'),
                        ('ram', '读取 RAM 数据'), ('css_pwr', '控制电源 --on'), ('reboot', '重启设备')]
         self.build()
-        self.theme(False)
+        self.theme(True)
         self.seed()
         self.devices.setCurrentRow(0)
         self.timer = QTimer(self)
@@ -928,7 +928,7 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.search.setPlaceholderText('搜索日志 (Ctrl+F)')
         self.search.setAccessibleName('搜索日志')
         self.search.addAction(icon('search'), QLineEdit.ActionPosition.LeadingPosition)
-        self.search.setMaximumWidth(140)
+        self.search.setMaximumWidth(220)
         self.search.setMinimumWidth(80)
         self.search.textChanged.connect(self.find)
         self.search.returnPressed.connect(self.next_match)
@@ -2135,6 +2135,8 @@ def main():
         def capture():
             if app.focusWidget():
                 app.focusWidget().clearFocus()
+            window.theme(False)
+            app.processEvents()
             window.grab().save(str(args.capture / 'qt-preview-light.png'))
             window.toggle_editor()
             app.processEvents()

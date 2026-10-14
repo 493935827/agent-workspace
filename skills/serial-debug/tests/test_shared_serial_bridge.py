@@ -47,8 +47,22 @@ class FakePort:
         self.closed = False
         self.writes = bytearray()
         self.dtr = True
+        self._parked = False
+        self._parker = threading.Event()
+
+    def park(self):
+        """Silence the port forever: read() blocks and releases the GIL.
+
+        The bridge thread outlives this test (daemon, stopped only at process
+        exit). Without parking, its leaked service reader hot-loops on a
+        released port and starves every later test in the same process.
+        """
+        self._parked = True
 
     def read(self, _size):
+        if self._parked:
+            self._parker.wait()
+            return b""
         if self.closed:
             raise OSError("port closed")
         if not self.release.wait(0.01):
@@ -144,6 +158,8 @@ class SharedSerialBridgeTests(unittest.TestCase):
                 new_client.close()
         finally:
             BRIDGE.open_serial = original_open_serial
+            first.park()
+            second.park()
 
     def test_recv_until_idle_reports_peer_disconnect(self):
         left, right = socket.socketpair()
