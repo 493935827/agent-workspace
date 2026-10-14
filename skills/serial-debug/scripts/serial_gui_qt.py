@@ -206,6 +206,22 @@ class ServiceWorker(threading.Thread):
                 self.emit('service_state', self.status)
 
 
+def usb_serial_rank(port):
+    """Sort key for attached ports: USB VID/PID first, Bluetooth last, natural COM order."""
+    text = f'{port.description} {port.hwid}'.upper()
+    has_usb_id = port.vid is not None and port.pid is not None
+    is_bluetooth = 'BTHENUM' in text or 'BLUETOOTH' in text
+    natural = [int(part) if part.isdigit() else part for part in re.split(r'(\d+)', port.device.upper())]
+    return (not has_usb_id, is_bluetooth, natural)
+
+
+def is_usb_serial(port):
+    """An attached USB serial port: VID/PID present and not Bluetooth."""
+    text = f'{port.description} {port.hwid}'.upper()
+    return (port.vid is not None and port.pid is not None
+            and 'BTHENUM' not in text and 'BLUETOOTH' not in text)
+
+
 class Workbench(Preview):
     def __init__(self, *, settings_path=None, persist=True, serial_factory=serial.serial_for_url,
                  port_provider=list_ports.comports, service_client_factory=ServiceClient, **kwargs):
@@ -416,20 +432,32 @@ class Workbench(Preview):
             self.state.setText('已停止等待新串口')
             return
         try:
-            self.known_ports = {p.device for p in self.port_provider()}
+            ports = list(self.port_provider())
         except Exception as exc:
             self.report_error(str(exc))
             return
-        ports = sorted(self.known_ports)
-        port, ok = QInputDialog.getItem(self, '检测串口', '选择连接，或等待新设备插入：', ['等待新设备插入'] + ports, 0, False)
+        # 自动检测：优先连接已接入的 USB 串口（排除蓝牙）。唯一候选直接连，
+        # 不再弹窗；多个候选时列表预选排序最优的一个；没有 USB 串口才等待。
+        usb = sorted((p for p in ports if is_usb_serial(p)), key=usb_serial_rank)
+        if len(usb) == 1:
+            self.connect_session(self.create_session(usb[0].device))
+            return
+        labels = {p.device: f'{p.device} · {p.description}' for p in ports}
+        usb_items = [labels[p.device] for p in usb]
+        other_items = [labels[device] for device in sorted(set(labels) - {p.device for p in usb})]
+        wait = '等待新设备插入'
+        items = [wait] + usb_items + other_items
+        port, ok = QInputDialog.getItem(self, '检测串口', '选择连接，或等待新设备插入：', items,
+                                        1 if usb_items else 0, False)
         if not ok:
             return
-        if port == '等待新设备插入':
+        if port == wait:
+            self.known_ports = {p.device for p in ports}
             self.detecting = True
             self.detect_timer.start()
             self.state.setText('等待新串口插入 · 再次点击检测可取消')
-        else:
-            self.connect_session(self.create_session(port))
+        elif port:
+            self.connect_session(self.create_session(port.split(' · ')[0].strip()))
 
     def poll_ports(self):
         try:
