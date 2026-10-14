@@ -57,6 +57,7 @@
 - `LineEnding`：按 Enter 时发送的换行符。嵌入式 Shell 常用 `cr`；若命令不执行，可尝试 `crlf` 或 `lf`。
 - `CharDelay`：逐字节发送间隔。较慢的 Shell 可以保留默认 `0.005`，高速可靠链路可设为 `0`。
 - `TcpPort`：共享串口桥的本机 TCP 端口，默认 `8888`。
+- `Python`：菜单和串口桥使用的解释器，默认 `python`。如果系统 Python 装不了 pyserial（例如 uv 管理的 `externally-managed` 环境），把它改成仓库内虚拟环境的完整路径，例如 `D:\path\to\serial-debug\.venv\Scripts\python.exe`。
 
 默认监听 `127.0.0.1`，只有本机可以连接。工具不会主动切换 DTR/RTS，因此不会故意触发复位或 Boot 模式。
 
@@ -95,6 +96,13 @@
 
 ```powershell
 python -m pip install -r requirements.txt
+```
+
+- 如果 `pip install` 报 `externally-managed`（uv 管理的 Python），改用仓库内虚拟环境，并把本地配置的 `Python` 字段指向它：
+
+```powershell
+uv venv .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 ```
 
 - 如果提示 COM 口被占用，请先关闭其他直接打开该串口的软件。

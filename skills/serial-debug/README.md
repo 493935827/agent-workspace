@@ -10,6 +10,15 @@
 python -m pip install -r windows/requirements.txt
 ```
 
+如果 Python 由 uv 管理（`pip install` 报 `externally-managed` 错误），改用仓库内虚拟环境：
+
+```powershell
+uv venv .venv
+uv pip install --python .venv\Scripts\python.exe -r windows/requirements.txt
+```
+
+`windows/serial_gui.cmd` 会自动优先使用 `.venv` 中的 Python；命令行启动工作台则用 `.venv\Scripts\python.exe scripts\serial_gui_qt.py`。串口菜单 `serial_console.ps1` 使用的解释器可以在 `serial_config.local.psd1` 的 `Python` 字段中改成同样的路径。
+
 ### 2. 启动
 
 推荐先启动共享服务，再启动中文 Qt 工作台：
@@ -46,10 +55,15 @@ Agent 通过 `agent.acquire` 获得凭证并按返回周期心跳。独占期间
 - `找不到 COM 口`：执行 `python windows/detect_serial_port.py --list-json` 查看系统实际端口；不要盲目选择蓝牙串口。
 - 发送结果为 `unknown`：只能先观察终端输出和日志，不能自动重发，因为设备可能已经收到部分数据。
 - 管理端口 `8889` 被占用：停止旧的 managed service，或为服务和会话同时指定另一组端口。
+- Windows PowerShell 5.1 中给 `serial_control.py` 传 JSON 参数（`--params`/`--command`）时，内嵌引号会被解析器吞掉。使用停止解析符 `--%` 原样传递：
+
+```powershell
+python --% scripts/serial_control.py send.hex --params "{\"data\":\"AA 55 01\"}" --control 8889
+```
 
 This repository owns one physical serial port in a background service. Legacy `bridge`, `connect`, `send`, and `socket://` clients continue to use the raw TCP endpoint. The Qt workbench (`scripts/serial_gui_qt.py`) is the human-facing console: it can drive a COM port directly for manual debugging, or attach to the managed service as a shared client with the same protocol as `scripts/serial_service_client.py` (protocol version 1).
 
-Install on Windows with `python -m pip install -r windows/requirements.txt`. Start the managed service with `python scripts/serial_service_cli.py --port COM10 --baud 115200`, then run `python scripts/serial_gui_qt.py` and connect through「更多 → 连接共享服务…」, or invoke an action with `python scripts/serial_control.py status --control 8889`.
+Install on Windows with `python -m pip install -r windows/requirements.txt`. On uv-managed Pythons where `pip install` fails with `externally-managed`, create a repo-local virtual environment instead (`uv venv .venv` and `uv pip install --python .venv\Scripts\python.exe -r windows/requirements.txt`); `windows/serial_gui.cmd` prefers that interpreter automatically. Start the managed service with `python scripts/serial_service_cli.py --port COM10 --baud 115200`, then run `python scripts/serial_gui_qt.py` and connect through「更多 → 连接共享服务…」, or invoke an action with `python scripts/serial_control.py status --control 8889`. When passing JSON parameters to `serial_control.py` from Windows PowerShell 5.1, use the stop-parsing operator so quotes survive: `python --% scripts/serial_control.py send.hex --params "{\"data\":\"AA 55 01\"}" --control 8889`.
 
 The service binds loopback only. Raw TCP defaults to port 8888 and management defaults to 8889. The management protocol is version 1, uses one JSON object per line, rejects messages over 256 KiB and sends over 64 KiB, and represents binary data as base64 in RX/TX events. `send.hex` accepts complete byte pairs such as `AA 55 01 02 FF`; malformed pairs are rejected before any write. Text uses UTF-8 by default and supports ASCII plus `none`, `cr`, `lf`, or `crlf` line endings.
 
