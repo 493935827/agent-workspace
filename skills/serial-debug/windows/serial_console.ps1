@@ -45,7 +45,7 @@ function Initialize-LocalConfig {
 
 function Set-LocalSerialPort([string]$PortName) {
     $TargetPath = Initialize-LocalConfig
-    $Content = Get-Content -LiteralPath $TargetPath -Raw
+    $Content = Get-Content -LiteralPath $TargetPath -Raw -Encoding UTF8
     $Pattern = '(?m)^(\s*Port\s*=\s*)"[^"]*"'
     if (-not [regex]::IsMatch($Content, $Pattern)) {
         throw "配置文件中找不到 Port 字段：$TargetPath"
@@ -59,7 +59,7 @@ function Set-LocalSerialPort([string]$PortName) {
 
 function Set-LocalBaud([int]$Baud) {
     $TargetPath = Initialize-LocalConfig
-    $Content = Get-Content -LiteralPath $TargetPath -Raw
+    $Content = Get-Content -LiteralPath $TargetPath -Raw -Encoding UTF8
     $Pattern = '(?m)^(\s*Baud\s*=\s*)\d+'
     if (-not [regex]::IsMatch($Content, $Pattern)) {
         throw "配置文件中找不到 Baud 字段：$TargetPath"
@@ -100,6 +100,9 @@ function Assert-PythonAndPySerial($Config) {
 
 function Start-SerialBridge {
     $Config = Get-SerialConfig
+    if ([string]::IsNullOrWhiteSpace([string]$Config.Port)) {
+        throw "本地配置缺少 Port（串口号）。请选择菜单 5 自动检测串口，或菜单 8 编辑 serial_config.local.psd1。"
+    }
     $Existing = Get-BridgeProcess
     if ($null -ne $Existing) {
         Write-Host "串口桥已经在运行（PID $($Existing.ProcessId)）。" -ForegroundColor Yellow
@@ -219,8 +222,11 @@ function Find-NextSerialPort {
     return $PortName
 }
 
-function Find-SerialBaud {
+function Find-SerialBaud([switch]$Passive) {
     $Config = Get-SerialConfig
+    if ([string]::IsNullOrWhiteSpace([string]$Config.Port)) {
+        throw "本地配置缺少 Port（串口号）。请选择菜单 5 自动检测串口，或菜单 8 编辑 serial_config.local.psd1。"
+    }
     if ($null -ne (Get-BridgeProcess)) {
         throw "当前串口仍被本工具占用，请先选择菜单 4 释放当前 COM 口。"
     }
@@ -238,11 +244,22 @@ function Find-SerialBaud {
     $SampleSeconds = if ($null -ne $Config.BaudSampleSeconds) { [double]$Config.BaudSampleSeconds } else { 0.8 }
     $Rounds = if ($null -ne $Config.BaudRounds) { [int]$Config.BaudRounds } else { 3 }
 
-    Write-Host "正在被动检测 $($Config.Port) 的波特率，不会向设备发送数据。" -ForegroundColor Cyan
-    Write-Host "请让设备持续输出日志；如果只在启动时输出，请在检测期间反复按开发板复位键。"
+    $DetectorArguments = @(
+        $BaudDetectorPath, "--port", $Config.Port,
+        "--bauds", ($BaudCandidates -join ","),
+        "--seconds", $SampleSeconds, "--rounds", $Rounds
+    )
+    if ($Passive) {
+        Write-Host "正在被动检测 $($Config.Port) 的波特率，不会向设备发送数据。" -ForegroundColor Cyan
+        Write-Host "请让设备持续输出日志；如果只在启动时输出，请在检测期间反复按开发板复位键。"
+    }
+    else {
+        $DetectorArguments += "--active"
+        Write-Host "正在主动检测 $($Config.Port) 的波特率：每个候选波特率都会发送回车探测字节。" -ForegroundColor Cyan
+        Write-Host "注意：检测会多次打开/关闭串口（部分开发板会因此复位），设备也会收到少量回车。"
+    }
     Write-Host "候选波特率：$($BaudCandidates -join ', ')"
-    $DetectedBaud = & $Config.Python $BaudDetectorPath --port $Config.Port `
-        --bauds ($BaudCandidates -join ",") --seconds $SampleSeconds --rounds $Rounds
+    $DetectedBaud = & $Config.Python @DetectorArguments
     $DetectorExitCode = $LASTEXITCODE
     if ($DetectorExitCode -eq 130) {
         Write-Host "已取消波特率检测。" -ForegroundColor Yellow
@@ -264,19 +281,56 @@ function Find-SerialBaud {
     return $Baud
 }
 
-function Detect-AndConnectNextSerialPort {
-    $CurrentConfig = Get-SerialConfig
-    if ($null -ne (Get-BridgeProcess)) {
-        throw "当前串口仍被本工具占用，请先选择菜单 4 释放当前 COM 口。"
+function Get-AttachedSerialPort {
+    $Config = Get-SerialConfig
+    $Picked = & $Config.Python $DetectorPath --pick-now
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($Picked)) { return $null }
+    return ([string]$Picked).Trim()
+}
+
+function Detect-AndConnectNextSerialPort([switch]$NonInteractive) {
+    $Config = Get-SerialConfig
+    Assert-PythonAndPySerial $Config
+
+    # 目标串口：优先选择当前已接入的 USB 串口；没有才等待新插入。
+    Write-Host "正在查找已接入的 USB 串口…" -ForegroundColor Cyan
+    $TargetPort = Get-AttachedSerialPort
+    $FromWait = $false
+    if ([string]::IsNullOrWhiteSpace($TargetPort)) {
+        Write-Host "没有已接入的 USB 串口，转为等待新插入。" -ForegroundColor Yellow
+        $TargetPort = Find-NextSerialPort
+        if ([string]::IsNullOrWhiteSpace($TargetPort)) { return }
+        $FromWait = $true
     }
-    if (Test-TcpEndpoint $CurrentConfig.Host $CurrentConfig.TcpPort) {
-        throw "共享地址 $($CurrentConfig.Host):$($CurrentConfig.TcpPort) 已被占用，请先释放占用后再连接。"
+    else {
+        Write-Host "已选择串口：$TargetPort" -ForegroundColor Green
     }
 
-    $DetectedPort = Find-NextSerialPort
-    if ([string]::IsNullOrWhiteSpace($DetectedPort)) { return }
+    # 串口桥运行中：同口直接开终端；换口先征得同意再重启。
+    $Running = Get-BridgeProcess
+    if ($null -ne $Running) {
+        if ($TargetPort -eq [string]$Config.Port) {
+            Write-Host "串口桥已连接 $TargetPort，直接打开终端。" -ForegroundColor Yellow
+            Open-SerialTerminal
+            return
+        }
+        if (-not $NonInteractive) {
+            $Answer = Read-Host "串口桥正在运行（当前 $($Config.Port)）。切换到 $TargetPort 会断开当前会话，是否继续？(Y/n)"
+            if ($Answer -match "^[nN]") {
+                Write-Host "已取消，保持当前串口。" -ForegroundColor Yellow
+                return
+            }
+        }
+        Stop-SerialBridge
+    }
+    elseif (Test-TcpEndpoint $Config.Host $Config.TcpPort) {
+        throw "共享地址 $($Config.Host):$($Config.TcpPort) 已被其他程序占用，请先释放后再连接。"
+    }
 
-    Write-Host "正在连接新串口：$DetectedPort" -ForegroundColor Cyan
+    if (-not $FromWait -and $TargetPort -ne [string]$Config.Port) {
+        Set-LocalSerialPort $TargetPort
+        Write-Host "已写入本地配置：$TargetPort" -ForegroundColor Green
+    }
     Start-SerialBridge
     Open-SerialTerminal
 }
@@ -318,7 +372,7 @@ function Show-Menu {
         Write-Host "2. 打开交互终端"
         Write-Host "3. 发送单条命令"
         Write-Host "4. 停止串口桥并释放 COM 口"
-        Write-Host "5. 自动检测下次接入的串口并连接"
+        Write-Host "5. 自动检测串口并连接（优先已接入的 USB 串口）"
         Write-Host "6. 只自动检测下次接入的串口"
         Write-Host "7. 查看当前串口"
         Write-Host "8. 编辑本地配置"
@@ -341,7 +395,20 @@ function Show-Menu {
                     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
                     Start-Process explorer.exe $LogDir
                 }
-                "10" { Find-SerialBaud | Out-Null }
+                "10" {
+                    Write-Host "波特率检测方式："
+                    Write-Host "  1. 主动探测（发送回车，适合带提示符、不主动输出日志的设备）"
+                    Write-Host "  2. 被动监听（不发送任何数据，需要设备持续输出日志）"
+                    $BaudMode = Read-Host "请选择（默认 1）"
+                    $Baud = if ($BaudMode -eq "2") { Find-SerialBaud -Passive } else { Find-SerialBaud }
+                    if ($null -ne $Baud) {
+                        $StartNow = Read-Host "是否立即启动串口桥并打开终端？(Y/n)"
+                        if ($StartNow -notmatch "^[nN]") {
+                            Start-SerialBridge
+                            Open-SerialTerminal
+                        }
+                    }
+                }
                 "0" { return }
                 default { Write-Host "无法识别该选项。" -ForegroundColor Yellow }
             }
@@ -349,7 +416,7 @@ function Show-Menu {
         catch {
             Write-Host "错误：$($_.Exception.Message)" -ForegroundColor Red
         }
-        if ($Choice -notin @("0", "2", "5", "8", "9")) {
+        if ($Choice -notin @("0", "2", "5", "8", "9", "10")) {
             Write-Host ""
             Read-Host "按 Enter 继续" | Out-Null
         }
@@ -369,6 +436,6 @@ switch ($Action) {
     "Ports"      { Show-SerialPorts }
     "AutoDetect" { Find-NextSerialPort | Out-Null }
     "AutoBaud"   { Find-SerialBaud | Out-Null }
-    "DetectConnect" { Detect-AndConnectNextSerialPort }
+    "DetectConnect" { Detect-AndConnectNextSerialPort -NonInteractive }
     default      { Show-Menu }
 }

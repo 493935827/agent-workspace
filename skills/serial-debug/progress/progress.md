@@ -1,10 +1,14 @@
 # 项目进度
 
-最后更新：2026-10-14 11:30（Asia/Shanghai）
+最后更新：2026-10-14 13:58（Asia/Shanghai）
 
 ## 当前概况
 
-- 日志降噪（2026-10-14）：直发模式「按键字节」TX 记录改为默认全静默（含回车、退格等控制键），新增「显示按键字节」开关（日志显示设置页，默认关闭）供调试不回显设备时打开；空提交（裸回车、空命令、空宏行）不生成 TX 记录但字节数照常累计；行首无可见内容的 RX 片段（回车回显 CRLF、peer 写入的裸 CR）不再渲染成纯时间戳空行，行中空片仍正常收尾当前行。显示过滤不影响 records 与落盘日志。新增 `tests/test_ui_log_noise.py`（8 项），全套 36 项通过（offscreen 约 41 秒）。
+- 串口工具修复与主动波特率检测（2026-10-14 下午）：菜单 5「自动检测串口并连接」重做——优先选择已接入的 USB 串口（`detect_serial_port.py --pick-now`，VID/PID 齐全且排除蓝牙），无 USB 口时回退 120 秒等待新插入；串口桥运行中同口直接开终端、换口征询后切换。修复根因：`serial_config.local.psd1` 曾被 PS 5.1 默认 GBK 读写损坏（`Set-LocalBaud`/`Set-LocalSerialPort` 无显式编码），中文注释乱码吞掉 `Port` 行 → `Start-Process -ArgumentList` 空元素报错；现 `Set-Local*` 读写统一 `-Encoding UTF8` + 带 BOM 写入，`Start-SerialBridge`/`Find-SerialBaud` 对缺失 Port 快速报清晰错误，本地配置已重建为干净 UTF-8 BOM。
+- 主动波特率检测（新增）：`detect_serial_baud.py --active` 每个候选波特率发送回车探测并评分应答（复用被动评分与拒绝猜测规则，主动模式默认 min-bytes 4 / 0.5s），`--probe` 可自定义探测字节；菜单 10 二选一（主动默认/被动），检测后可立即启动桥；CLI `-Action AutoBaud` 默认主动。
+- 实机验收（COM6，FTDI，atom>> shell）：`--pick-now` 正确选中 COM6（跳过两个蓝牙口）；主动波特率检测 8 候选×3 轮判定 115200（exit 0，含设备对回车回显提示符）；`-Action Start` 桥启动成功（修复前报 ArgumentList 错）；`-Action DetectConnect` 走「已接入 USB → 桥同口 → 直接开终端」全链路，miniterm 中看到板子持续输出 RRAM_TEST 日志；停止后 COM 口正常释放。被动模式对静默设备仍会正确拒绝猜测。
+- 测试：`tests/test_detect_serial_baud.py` 增 5 项主动模式用例（探测字节透传、轮次累计、静默/歧义拒绝、`parse_probe` 转义），新增 `tests/test_detect_serial_port.py` 5 项（USB 优先排序、无 USB 拒绝、自然序、新插入/重插/超时）；全套 47 项通过（offscreen 约 43 秒）。
+- 日志降噪（2026-10-14）：直发模式「按键字节」TX 记录改为默认全静默（含回车、退格等控制键），新增「显示按键字节」开关（日志显示设置页，默认关闭）供调试不回显设备时打开；空提交（裸回车、空命令、空宏行）不生成 TX 记录但字节数照常累计；行首无可见内容的 RX 片段（回车回显 CRLF、peer 写入的裸 CR）不再渲染成纯时间戳空行，行中空片仍正常收尾当前行。显示过滤不影响 records 与落盘日志。新增 `tests/test_ui_log_noise.py`（8 项）。
 - 目标 / 当前阶段：Issue #1 共享串口工具已完成 Phase 1 服务端；2026-10-13 人工 GUI 升级为 Qt 工作台；同日完成统一风格改造（详见 docs/design-system.md）；2026-10-14 完成 skill 完整工作流实测与工作流级 bug 修复。
 - 工作流全链路验证（2026-10-14）：Windows 控制器（Status/Start/Send/Ports/Stop，PID 跟踪与进程清理含 uv shim 场景）、bridge/connect/send 三客户端、managed service 生命周期（released 启动、serial.open、send、send.hex、serial.close、断连保护、service.stop --expect-pid）、agent 租约（acquire、占用拒绝、带凭证发送、release）全部实测通过；Conserver 未安装（按规则跳过）。
 - 真实硬件验收（COM6，FTDI USB 串口）：被动波特率检测跑完 8 候选×3 轮全程无输出（正确拒绝猜测）；115200 打开成功，`help` TX 已写入（exit=0），终端与日志无 RX——对端设备不发送数据，设备级应答往返仍需有输出的目标板配合（人工验收项保留）。
@@ -23,6 +27,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-14 / 串口工具修复与主动波特率检测 | 菜单 5 重做（优先已接入 USB、桥切换征询）；修复本地配置 GBK 损坏导致的 Start-Process 空参数故障（Set-Local* 统一 UTF-8、缺 Port 快速报错、本地配置重建）；新增主动波特率检测（CLI/菜单/ActionBaud）；COM6 实机全链路验收；新增 10 项测试，全套 47 项通过 | （本次对话，未单独归档） |
 | 2026-10-14 / 日志降噪 | 按键字节记录默认全静默并新增「显示按键字节」开关；空提交静默；行首空白 RX 片段跳过渲染（记录与日志保留）；新增 8 项回归测试，全套 36 项通过 | （本次对话，未单独归档） |
 | 2026-10-14 / 工作流全链路实测与修复 | loop:// 与 COM6 实测控制器/桥/客户端/服务生命周期/agent 租约；修复 uv venv 安装文档、serial_gui.cmd .venv 优先、PS 5.1 JSON 传参说明、troubleshooting 陈旧参数；28 项测试通过（offscreen 27s） | （本次对话，未单独归档） |
 | 2026-10-13 / 统一风格与可访问性改造 | 定档 Fluent 2 深色优先；token AA 修复、深色默认、Tab/状态栏错误/对话框行内校验修复；新增对比度与风格回归测试；测试基建提速 287s→27s | [Fluent2 style pass](handoff-20261014-110900-fluent2-style-pass.md) |

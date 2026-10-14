@@ -61,6 +61,59 @@ class DetectSerialBaudTests(unittest.TestCase):
     def test_parse_bauds_deduplicates_in_order(self):
         self.assertEqual((115200, 9600), MODULE.parse_bauds("115200,9600,115200"))
 
+    def test_active_selects_baud_that_answers_enter(self):
+        samples = {
+            115200: b"\r\natom>> ",
+            57600: b"\xff\x00\x91\x03\x80\x00\xfe\x02" * 5,
+            9600: b"",
+        }
+
+        def prober(_port, baud, _seconds, probe, _attempts):
+            self.assertEqual(b"\r", probe, "active probing must submit the probe bytes")
+            return samples[baud]
+
+        baud, _scores, reason = MODULE.detect_baud_active(
+            "COM_TEST", tuple(samples), 0.01, 1, 4, probe=b"\r", attempts=2, prober=prober
+        )
+        self.assertEqual(115200, baud)
+        self.assertIsNone(reason)
+
+    def test_active_rejects_silent_device(self):
+        baud, _scores, reason = MODULE.detect_baud_active(
+            "COM_TEST", (115200, 57600), 0.01, 1, 4,
+            prober=lambda *_args: b"",
+        )
+        self.assertIsNone(baud)
+        self.assertEqual("no_signal", reason)
+
+    def test_active_rejects_ambiguous_answers(self):
+        baud, _scores, reason = MODULE.detect_baud_active(
+            "COM_TEST", (115200, 57600), 0.01, 1, 4,
+            prober=lambda _port, _baud, _seconds, _probe, _attempts: b"\r\nready> ",
+        )
+        self.assertIsNone(baud)
+        self.assertEqual("ambiguous", reason)
+
+    def test_active_accumulates_rounds(self):
+        calls = []
+
+        def prober(_port, baud, seconds, probe, attempts):
+            calls.append((baud, seconds, probe, attempts))
+            return b"\r\natom>> " if baud == 115200 else b""
+
+        baud, _scores, reason = MODULE.detect_baud_active(
+            "COM_TEST", (115200, 57600), 0.6, 2, 4, probe=b"\r", attempts=3, prober=prober
+        )
+        self.assertEqual(115200, baud)
+        self.assertIsNone(reason)
+        # 2 rounds x 2 bauds, and probe parameters forwarded unchanged.
+        self.assertEqual([(115200, 0.6, b"\r", 3), (57600, 0.6, b"\r", 3)] * 2, calls)
+
+    def test_parse_probe_supports_escapes(self):
+        self.assertEqual(b"\r", MODULE.parse_probe("\\r"))
+        self.assertEqual(b"\n", MODULE.parse_probe("\\n"))
+        self.assertEqual(b"help\r", MODULE.parse_probe("help\\r"))
+
 
 if __name__ == "__main__":
     unittest.main()
