@@ -174,6 +174,25 @@ agentctl doctor                                                  # 验证
 
 import 时如果 doctor 失败，提示里会给出对应的 restore 命令；被链接替换过的原目录都在 `backups/` 里带时间戳保存。
 
+## 12. skills CLI（社区技能生态）
+
+[vercel-labs/skills](https://github.com/vercel-labs/skills)（npm 包 `skills`，MIT）是开放技能生态的安装器：从 GitHub 等来源把社区技能装进各 agent 的技能目录，`skills find` 可搜索 [skills.sh](https://skills.sh/) 排行榜。本仓库已全局安装并登记（`resources.npm.skills` + doctor `tool:skills`），`skills/find-skills` 技能是它在会话内的使用入口（含本环境适配说明）。
+
+```bash
+skills add <owner/repo@skill> -g -a pi -y   # 全局：装进 ~/.agents/skills（DSH 与 agentctl 共用）
+skills add <owner/repo> -a universal -y     # 项目级：./.agents/skills/ + skills-lock.json（可提交）
+skills find <keyword>                       # 搜索社区技能
+skills list -g                              # 查看已装；skills remove <name> -y 卸载
+```
+
+注意事项：
+
+- **装到哪**：本机 agent（DSH）从 `~/.agents/skills` 读技能，全局安装必须 `-a pi`（该 agent 的全局目录恰为 `~/.agents/skills`）；不带 `-a` 会自动探测机器上的 agent 并喷洒到全部 agent 目录，输出噪杂。
+- **卸载**：`skills remove <name> -y` 不带 `-a`；带单个 `-a` 时若检测到其它 agent 共用 canonical 拷贝，会故意保留文件（防误删共享技能）。
+- **与 agentctl 共存**：skills CLI 装的是真实目录，agentctl 管理的是 junction，同名冲突时以本仓库 `skills/` 为准（`agentctl link` 先把外来目录备份到 `backups/` 再重链）。
+- **安装与重装**：`npm install -g skills`（要求 Node ≥ 22.20）。本机装在 DSH 离线 node 的 npm 前缀下，DSH 更换 node 版本后会消失，scan/diff 会报 MISSING，重装即可。
+- **网络与隐私**：`add/find/update` 需公网（内网机仅 `list/remove` 可用）；遥测默认向 skills.sh 发送事件参数（版本、来源、技能名，不含机器标识），设 `DISABLE_TELEMETRY=1` 关闭。
+
 ## 命令参考
 
 运行 `agentctl --help` 查看命令总览；运行 `agentctl <命令> --help` 查看该命令的参数、示例和注意事项。全局 `--env`、`--root` 应放在子命令前。

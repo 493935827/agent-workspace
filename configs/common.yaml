@@ -12,6 +12,7 @@ skills:
   - define-bounded-goal
   - diagnosing-bugs
   - domain-modeling
+  - find-skills
   - firmware-mentor
   - git-delivery
   - git-helper
@@ -63,6 +64,7 @@ tools:
   uv: {}
   node: {}
   npm: {}
+  skills: {}
 
 # secret NAMES only - values live in .env, which never enters git or bundles
 secrets:
@@ -73,3 +75,11 @@ secrets:
 
 network:
   internet: true
+
+# resources: 期望清单，供 agentctl scan/diff 与基线对比
+# skills = vercel-labs/skills CLI；本机 npm ls -g 不输出 resolved 来源字段，
+# adopt 按设计拒绝猜测来源，此处为已知 registry 来源的手动登记
+resources:
+  npm:
+    skills:
+      version: null
