@@ -21,12 +21,13 @@
 - 已发现待修：`agentctl update` 重链使用 pull 前旧配置（cli.py 先建 cfg、update.py 复用），拉取新增启用的 skill 需手动 `agentctl link`；测试未覆盖此场景，修复待用户决策。
 - 已发现待修（2026-10-16）：`tests/test_discovery.py` 4 项失败为存量问题（stash 对照验证与当日改动无关），且失败用例会把 `npm:example` 测试数据写进真实 `configs/personal.yaml`（本次已 checkout 还原），疑似用例工作区隔离缺陷，修复待用户决策。
 - 安全边界：`user-data/`、OneNote 和受限安装介质未上传公开代码仓库。
-- 阻塞与下一步：仍缺 AndeSight 5.3.1，需走公司批准渠道；其他环境可按私有 Release ZIP 与校验文件重建，后续按用户新需求推进。
+- 阻塞与下一步：仍缺 AndeSight 5.3.1，需走公司批准渠道；其他环境可按私有 Release ZIP 与校验文件重建，后续按用户新需求推进；`2ebb8aa` 与 handoff 提交待用户终端 git push。
 
 ## 对话归档
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-16 / vercel skills CLI 集成 | 安装并验收 skills CLI v1.7.2（全局装 `-a pi`、remove 不带 `-a` 等坑记入 README §12），find-skills 技能入库并注册（提交 `2ebb8aa`；DSH 内推送被拦，待用户终端推送）；发现 test_discovery 存量失败与真实配置污染缺陷（已还原） | [vercel-labs/skills CLI 集成](handoff-20261016-105816-vercel-skills-cli.md) |
 | 2026-10-14 / `session-a192d833`（export 扫描修复） | 修复 agentctl export 密钥扫描把 Microsoft Learn URL 词组误判为 OpenAI key 的问题；回归测试、378 文件 dry-run 与真实导出均通过（提交 `4fec1d1`，因会话环境限制未推送） | [export 密钥扫描误报修复](handoff-20261014-140351-export-secret-scan-fix.md) |
 | 2026-10-13 / serial-qt promotion & skill sync | serial-gui 切换 Qt 主分支、移植 backspace 修复、新增服务会话与 agent 接管；serial-debug skill 替换为 Qt 工作台并同步规范仓库（三仓库均已推送；真实硬件验收未做） | [serial-gui Qt 主分支切换与 skill 工具同步](handoff-20261013-163203-serial-qt-promotion-skill-sync.md) |
 | 2026-10-11 / `01a1294d`（agentctl help 与验证） | 补齐中文 help 和全局入口、修复启动脚本退出码，并验证 15 个子命令 | [agentctl 帮助、全局入口与命令验证](handoff-20261011-175417-agentctl-help-validation.md) |
