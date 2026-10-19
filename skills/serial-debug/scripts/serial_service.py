@@ -1,6 +1,6 @@
 """Shared physical port owner and its local raw/control TCP transports."""
 import base64
-from collections import OrderedDict
+from collections import OrderedDict, deque
 import math
 import os
 from pathlib import Path
@@ -13,6 +13,13 @@ import uuid
 import serial
 from serial.tools import list_ports
 from serial_protocol import VERSION, ActionError, encode, payload, read_message
+from serial_baud_scan import DEFAULT_BAUDS, readability, scan_open_device
+
+
+AUTO_BAUD_DEFAULTS = dict(enabled=False, active=False, bauds=DEFAULT_BAUDS,
+                          seconds=0.5, rounds=1, min_bytes=None,
+                          threshold=0.55, window_seconds=3.0, min_suspect_bytes=48,
+                          cooldown_success=5.0, cooldown_fail=20.0)
 
 
 def close_socket(sock):
@@ -58,6 +65,12 @@ class SerialService:
         self.log_dropped = 0
         self.client_drops = 0
         self.event_capacity = options.get('event_capacity', 1024)
+        self.auto_baud_cfg = self._auto_baud_options(options.get('auto_baud'))
+        self.auto_baud_state = dict(last_reason=None, last_change=None, cooldown_until=0.0)
+        self.scan_requested = None
+        self.scan_active = False
+        self._scan_wakeup = threading.Event()
+        self._suspect_window = deque()
 
     def _thread(self, target, *args):
         def run():
@@ -70,6 +83,33 @@ class SerialService:
         with self.lock:
             self.threads.add(thread)
         thread.start()
+
+    @staticmethod
+    def _auto_baud_options(raw):
+        cfg = dict(AUTO_BAUD_DEFAULTS)
+        if not isinstance(raw, dict):
+            return cfg
+        unknown = set(raw) - set(cfg)
+        if unknown:
+            raise ValueError(f'Unknown auto_baud options: {sorted(unknown)}')
+        cfg.update(raw)
+        bauds = tuple(dict.fromkeys(int(b) for b in cfg['bauds']))
+        if not bauds or any(b <= 0 for b in bauds):
+            raise ValueError('auto_baud bauds must be positive integers')
+        cfg['bauds'] = bauds
+        cfg['enabled'] = bool(cfg['enabled'])
+        cfg['active'] = bool(cfg['active'])
+        for key in ('seconds', 'threshold', 'window_seconds', 'cooldown_success', 'cooldown_fail'):
+            cfg[key] = float(cfg[key])
+        for key in ('rounds', 'min_suspect_bytes'):
+            cfg[key] = int(cfg[key])
+        min_bytes = cfg['min_bytes']
+        cfg['min_bytes'] = None if min_bytes is None else int(min_bytes)
+        if not 0.05 <= cfg['seconds'] <= 5 or not 1 <= cfg['rounds'] <= 5:
+            raise ValueError('auto_baud seconds/rounds out of range')
+        if not 0 < cfg['threshold'] < 1:
+            raise ValueError('auto_baud threshold must be between 0 and 1')
+        return cfg
 
     def start(self):
         try:
@@ -96,6 +136,7 @@ class SerialService:
             self._thread(self._reader)
             self._thread(self._maintenance)
             self._thread(self._logger)
+            self._thread(self._auto_baud_loop)
             return self
         except Exception:
             self.close()
@@ -155,6 +196,16 @@ class SerialService:
                     self.client_drops += 1
                     close_socket(sock)
 
+    def _auto_baud_public(self):
+        state = self.auto_baud_state
+        cfg = self.auto_baud_cfg
+        return dict(enabled=cfg['enabled'], active=cfg['active'],
+                    scanning=self.scan_active, requested=self.scan_requested is not None,
+                    bauds=list(cfg['bauds']), seconds=cfg['seconds'], rounds=cfg['rounds'],
+                    min_bytes=cfg['min_bytes'] or (4 if cfg['active'] else 12),
+                    last_reason=state['last_reason'], last_change=state['last_change'],
+                    cooldown_remaining=max(0.0, round(state['cooldown_until'] - time.monotonic(), 2)))
+
     def status(self):
         return dict(version=VERSION, connected=self.device is not None,
                     config=self.config.copy(), sequence=self.sequence, instance=self.instance,
@@ -164,7 +215,8 @@ class SerialService:
                     transition=self.transition, reconnect=self.reconnect, error=self.last_error,
                     lease_timeout=self.lease_timeout, log_path=str(self.log_path) if self.log_path else None,
                     log_error=self.log_error, log_dropped=self.log_dropped, client_drops=self.client_drops,
-                    capabilities=['events', 'jobs', 'exclusive', 'configure', 'device-release'])
+                    auto_baud=self._auto_baud_public(),
+                    capabilities=['events', 'jobs', 'exclusive', 'configure', 'device-release', 'auto-baud'])
 
     def _control(self, sock):
         with sock.makefile('rb') as stream:
@@ -213,6 +265,8 @@ class SerialService:
                 raise ActionError('invalid_token', 'Lease is no longer valid; do not resume this task')
             if action in ('hello', 'status'):
                 return self.status()
+            if action == 'autobaud.status':
+                return self._auto_baud_public()
             if action == 'serial.list':
                 return [dict(port=p.device, description=p.description) for p in list_ports.comports()]
             if action == 'job.status':
@@ -246,6 +300,10 @@ class SerialService:
                 if action == 'service.stop' and params.get('instance') != self.instance:
                     raise ActionError('identity', 'Expected the managed service instance ID')
                 return self._device_action(action, params)
+            if action == 'serial.autobaud':
+                return self._autobaud_start(params)
+            if action == 'serial.autobaud.configure':
+                return self._autobaud_configure(params)
             if action in ('send', 'send.hex'):
                 if self.device is None:
                     raise ActionError('disconnected', 'Device is not connected')
@@ -383,10 +441,17 @@ class SerialService:
                 self._cancel_jobs()
             self._wait_active()
             if action in ('serial.configure', 'serial.baud') and self.device and config['port'] == self.config['port']:
+                previous_baud = self.config['baudrate']
                 try:
                     self.device.apply_settings({k: v for k, v in config.items() if k != 'port'})
                 finally:
                     self.config.update({k: v for k, v in self.device.get_settings().items() if k in self.config})
+                if self.config['baudrate'] != previous_baud:
+                    self.auto_baud_state['last_change'] = dict(
+                        **{'from': previous_baud, 'to': self.config['baudrate']}, trigger='manual')
+                    self._emit('baud_changed', **{'from': previous_baud, 'to': self.config['baudrate']},
+                               trigger='manual')
+                    self._raw_notice(f"波特率已从 {previous_baud} 切换为 {self.config['baudrate']}")
             else:
                 if action in ('serial.configure', 'serial.baud') and self.device:
                     raise ActionError('invalid_input', 'Use serial.open to switch ports')
@@ -450,6 +515,194 @@ class SerialService:
                     except (OSError, serial.SerialException) as exc:
                         self.last_error = str(exc)
 
+    def _raw_notice(self, text):
+        """Inject a human-readable status line into every raw TCP client."""
+        data = f"\r\n[串口桥] {text}\r\n".encode('utf-8')
+        for sock, outgoing in list(self.raw_clients.items()):
+            try:
+                outgoing.put_nowait(data)
+            except queue.Full:
+                self.client_drops += 1
+                close_socket(sock)
+                self.raw_clients.pop(sock, None)
+
+    def _auto_baud_feed(self, data, now):
+        """Called with the lock held: watch RX for sustained garbled output."""
+        cfg = self.auto_baud_cfg
+        if not cfg['enabled'] or self.scan_active or self.scan_requested or self.transition or self.token:
+            return
+        if now < self.auto_baud_state['cooldown_until']:
+            return
+        window = self._suspect_window
+        window.append((now, data))
+        horizon = now - cfg['window_seconds']
+        while window and window[0][0] < horizon:
+            window.popleft()
+        total = sum(len(chunk) for _, chunk in window)
+        if total < cfg['min_suspect_bytes']:
+            return
+        combined = b''.join(chunk for _, chunk in window)
+        if readability(combined) <= cfg['threshold']:
+            window.clear()
+            self.scan_requested = dict(
+                mode='active' if cfg['active'] else 'passive', bauds=cfg['bauds'],
+                seconds=cfg['seconds'], rounds=cfg['rounds'],
+                min_bytes=cfg['min_bytes'] or (4 if cfg['active'] else 12),
+                probe=b"\r" if cfg['active'] else None, manual=False)
+            self._scan_wakeup.set()
+
+    def _auto_baud_loop(self):
+        while not self.stop.wait(0.1):
+            self._scan_wakeup.wait(0.5)
+            self._scan_wakeup.clear()
+            request = None
+            with self.lock:
+                if (self.scan_requested and self.device is not None
+                        and not self.transition and not self.scan_active):
+                    if not self.scan_requested.get('manual') and self.token:
+                        self.scan_requested = None  # agent owns the device; drop auto request
+                    else:
+                        request = self.scan_requested
+                        self.scan_requested = None
+                        self.scan_active = True
+                        self.transition = 'baud_scan'
+            if request is None:
+                continue
+            try:
+                self._perform_scan(request)
+            except Exception as exc:  # the monitor thread must survive anything
+                with self.lock:
+                    self.auto_baud_state['last_reason'] = f'error: {exc}'
+                    self._emit('baud_scan', state='failed', reason=str(exc),
+                               trigger='manual' if request.get('manual') else 'auto')
+                try:
+                    self._raw_notice('波特率扫描出错，已恢复原波特率。')
+                except Exception:
+                    pass
+            finally:
+                with self.lock:
+                    self.scan_active = False
+                    self.transition = None
+                    self._suspect_window.clear()
+                    self.changed.notify_all()
+                    self._emit('state', state=self.status())
+
+    def _perform_scan(self, request):
+        device = self.device
+        if device is None:
+            return
+        cfg = self.auto_baud_cfg
+        mode = request['mode']
+        trigger = 'manual' if request.get('manual') else 'auto'
+        start_baud = self.config['baudrate']
+        candidates = [start_baud] + [int(b) for b in request['bauds'] if int(b) != start_baud]
+        self._emit('baud_scan', state='started', mode=mode, candidates=candidates, trigger=trigger)
+        self._raw_notice(
+            "检测到疑似波特率失配，正在%s扫描（候选：%s），期间暂停收发" %
+            ('主动' if mode == 'active' else '被动', ', '.join(str(b) for b in candidates)))
+        winner, scores, reason = scan_open_device(
+            device, candidates, request['seconds'], request['rounds'], request['min_bytes'],
+            probe=request.get('probe'),
+            applier=lambda baud: device.apply_settings({'baudrate': baud}))
+        with self.lock:
+            state = self.auto_baud_state
+            now = time.monotonic()
+            if self.device is device:
+                try:
+                    self.config.update({k: v for k, v in device.get_settings().items() if k in self.config})
+                except (OSError, serial.SerialException, AttributeError):
+                    pass
+            state['last_reason'] = reason
+            # -inf scores (empty samples) are not JSON-compliant (allow_nan=False).
+            summary = [dict(baud=s.baud, bytes=s.byte_count,
+                            score=round(s.score, 1) if math.isfinite(s.score) else None)
+                       for s in scores]
+            if reason == 'interrupted' or self.device is not device:
+                state['cooldown_until'] = now + cfg['cooldown_fail']
+                self._emit('baud_scan', state='failed', reason=reason, trigger=trigger, scores=summary)
+                self._raw_notice('波特率扫描被中断，已恢复原波特率。')
+                return
+            if winner is not None and winner != start_baud:
+                applied = False
+                try:
+                    device.apply_settings({'baudrate': winner})
+                    self.config.update({k: v for k, v in device.get_settings().items() if k in self.config})
+                    applied = True
+                except (OSError, serial.SerialException, ValueError) as exc:
+                    state['last_reason'] = reason = f'apply_failed: {exc}'
+                if applied:
+                    state['last_reason'] = None
+                    state['last_change'] = {'from': start_baud, 'to': winner, 'trigger': trigger}
+                    state['cooldown_until'] = now + cfg['cooldown_success']
+                    self._emit('baud_changed', **{'from': start_baud, 'to': winner},
+                               trigger=trigger, scores=summary)
+                    self._raw_notice(f"波特率已从 {start_baud} 切换为 {winner}（在线检测）")
+                    return
+            if winner == start_baud:
+                state['last_reason'] = None
+                state['cooldown_until'] = now + cfg['cooldown_success']
+                self._emit('baud_scan', state='unchanged', baud=start_baud, trigger=trigger, scores=summary)
+                self._raw_notice(f"在线检测确认当前波特率 {start_baud} 有效")
+                return
+            state['cooldown_until'] = now + cfg['cooldown_fail']
+            hint = ('可读输出不足：让设备多打印，或改用主动探测（会发送回车）。'
+                    if mode == 'passive' else '设备没有应答回车探测；请确认固件支持，或改用被动模式。')
+            self._emit('baud_scan', state='failed', reason=reason, trigger=trigger, scores=summary)
+            self._raw_notice(f"未能确定波特率（{reason}），已保持 {start_baud}。{hint}")
+
+    def _autobaud_start(self, params):
+        params = params or {}
+        cfg = self.auto_baud_cfg
+        mode = params.get('mode') or ('active' if cfg['active'] else 'passive')
+        if mode not in ('passive', 'active'):
+            raise ActionError('invalid_input', "mode must be 'passive' or 'active'")
+        bauds = params.get('bauds')
+        if bauds is None:
+            bauds = cfg['bauds']
+        else:
+            if (not isinstance(bauds, list) or not bauds or len(bauds) > 16 or
+                    any(isinstance(b, bool) or not isinstance(b, int) or b <= 0 for b in bauds)):
+                raise ActionError('invalid_input', 'bauds must be a list of 1..16 positive integers')
+            bauds = tuple(dict.fromkeys(int(b) for b in bauds))
+        seconds = params.get('seconds', cfg['seconds'])
+        rounds = params.get('rounds', cfg['rounds'])
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or not 0.05 <= seconds <= 5:
+            raise ActionError('invalid_input', 'seconds must be between 0.05 and 5')
+        if not isinstance(rounds, int) or isinstance(rounds, bool) or not 1 <= rounds <= 5:
+            raise ActionError('invalid_input', 'rounds must be between 1 and 5')
+        min_bytes = params.get('min_bytes')
+        if min_bytes is None:
+            min_bytes = cfg['min_bytes'] or (4 if mode == 'active' else 12)
+        if not isinstance(min_bytes, int) or isinstance(min_bytes, bool) or not 1 <= min_bytes <= 65536:
+            raise ActionError('invalid_input', 'min_bytes must be a positive integer')
+        with self.lock:
+            if self.device is None:
+                raise ActionError('disconnected', 'Device is not connected')
+            if self.scan_active or self.scan_requested:
+                raise ActionError('busy', 'A baud scan is already pending or running')
+        self.scan_requested = dict(mode=mode, bauds=tuple(bauds), seconds=float(seconds),
+                                   rounds=int(rounds), min_bytes=int(min_bytes),
+                                   probe=b"\r" if mode == 'active' else None, manual=True)
+        self._scan_wakeup.set()
+        return self._auto_baud_public()
+
+    def _autobaud_configure(self, params):
+        if not isinstance(params, dict) or not params:
+            raise ActionError('invalid_input', 'Expected auto_baud configuration fields')
+        unknown = set(params) - set(self.auto_baud_cfg)
+        if unknown:
+            raise ActionError('invalid_input', f'Unknown auto_baud fields: {sorted(unknown)}')
+        merged = dict(self.auto_baud_cfg)
+        merged.update(params)
+        cfg = self._auto_baud_options(merged)
+        with self.lock:
+            self.auto_baud_cfg = cfg
+            if not cfg['enabled']:
+                self.scan_requested = None
+                self._suspect_window.clear()
+        self._emit('state', state=self.status())
+        return self._auto_baud_public()
+
     def _logger(self):
         if not self.log_path:
             return
@@ -474,6 +727,10 @@ class SerialService:
             if device is None:
                 self.stop.wait(.05)
                 continue
+            if self.scan_active:
+                # The baud scan owns the device (and its read buffer) right now.
+                self.stop.wait(.02)
+                continue
             try:
                 data = device.read(4096)
             except (OSError, serial.SerialException) as exc:
@@ -484,6 +741,7 @@ class SerialService:
                     if device is not self.device:
                         continue
                     self._emit('rx', data=base64.b64encode(data).decode())
+                    self._auto_baud_feed(data, time.monotonic())
                     if self.log_path:
                         try:
                             if self.log_error:

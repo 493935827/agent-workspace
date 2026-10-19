@@ -147,5 +147,175 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.device.writes, b'')
 
 
+class DriftSerial:
+    """Device that transmits readable text only when read at its true baud."""
+
+    def __init__(self, good_baud=921600):
+        self.good = good_baud
+        self.settings = dict(baudrate=115200, bytesize=8, stopbits=1, parity='N',
+                             xonxoff=False, rtscts=False, dsrdtr=False)
+        self.input = queue.Queue()
+        self.writes = bytearray()
+        self.closed = False
+
+    def read(self, size):
+        if self.closed:
+            raise OSError('closed')
+        time.sleep(0.001)  # one chunk per millisecond, like a real UART stream
+        try:
+            chunk = self.input.get(timeout=.02)
+        except queue.Empty:
+            return b''
+        if self.settings['baudrate'] == self.good:
+            return chunk
+        return bytes(255 - byte for byte in chunk)  # bit-inverted: unreadable noise
+
+    def write(self, data):
+        if self.closed:
+            raise OSError('closed')
+        self.writes.extend(data)
+        return len(data)
+
+    def get_settings(self):
+        return self.settings.copy()
+
+    def apply_settings(self, settings):
+        if settings.get('baudrate') == 123:
+            raise OSError('unsupported baud')
+        self.settings.update(settings)
+
+    def close(self):
+        self.closed = True
+
+
+class AutoBaudTests(unittest.TestCase):
+    def setUp(self):
+        self.device = DriftSerial()
+        self.service = SerialService(
+            port='FAKE', tcp=0, control=0, serial_factory=lambda *_: self.device,
+            auto_baud=dict(enabled=True, active=False, bauds=(921600,), seconds=0.05,
+                           rounds=1, min_bytes=8, min_suspect_bytes=24,
+                           window_seconds=2.0, cooldown_fail=60.0)).start()
+        self.addCleanup(self.service.close)
+        self.client = Client(port=self.service.control_port)
+        self.addCleanup(self.client.close)
+
+    def subscribe(self):
+        self.client.subscribe()
+
+    def wait_event(self, name, timeout=5):
+        deadline = time.monotonic() + timeout
+        seen = []
+        while time.monotonic() < deadline:
+            try:
+                event = self.client.next_event(timeout=.1)
+            except queue.Empty:
+                continue
+            seen.append(event)
+            if event.get('event') == name:
+                return event, seen
+        self.fail(f'{name} event not observed; got {[e.get("event") for e in seen]}')
+
+    def wait_scan_done(self, timeout=5):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            state = self.client.call('autobaud.status')
+            if not state.get('scanning') and not state.get('requested'):
+                return state
+            time.sleep(.02)
+        self.fail('scan did not finish')
+
+    def test_auto_scan_switches_baud_on_sustained_garbage_without_writing(self):
+        self.subscribe()
+        for _ in range(500):
+            self.device.input.put(b'hello world\r\n')
+        event, _ = self.wait_event('baud_changed')
+        self.assertEqual(115200, event['from'])
+        self.assertEqual(921600, event['to'])
+        self.assertEqual('auto', event['trigger'])
+        state = self.wait_scan_done()
+        self.assertEqual(921600, self.device.settings['baudrate'])
+        self.assertEqual(921600, self.client.call('status')['config']['baudrate'])
+        self.assertEqual(b'', bytes(self.device.writes))  # passive scan sends nothing
+        self.assertIsNone(state['last_reason'])
+        self.assertEqual('auto', state['last_change']['trigger'])
+
+    def test_failed_auto_scan_restores_baud_and_starts_cooldown(self):
+        self.subscribe()
+        for _ in range(500):
+            self.device.input.put(b'\xff\x00\x91\x03\x80\x00\xfe\x02')
+        event, _ = self.wait_event('baud_scan')
+        self.assertEqual('started', event['state'])
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            state = self.client.call('autobaud.status')
+            if state.get('last_reason'):
+                break
+            time.sleep(.02)
+        self.assertEqual('no_signal', state['last_reason'])
+        self.assertEqual(115200, self.device.settings['baudrate'])
+        self.assertEqual(115200, self.client.call('status')['config']['baudrate'])
+        self.assertGreater(state['cooldown_remaining'], 30)
+
+    def test_manual_active_scan_writes_probes_and_reports_no_signal(self):
+        self.subscribe()
+        result = self.client.call('serial.autobaud', mode='active', bauds=[921600],
+                                  seconds=0.05, rounds=2, min_bytes=4)
+        self.assertTrue(result['requested'])
+        with self.assertRaises(RemoteError) as error:
+            self.client.call('serial.autobaud', mode='passive')
+        self.assertEqual(error.exception.code, 'busy')
+        state = self.wait_scan_done()
+        # candidates = [current 115200, 921600] x 2 rounds x 1 probe each.
+        self.assertEqual(b'\r' * 4, bytes(self.device.writes))
+        self.assertEqual('no_signal', state['last_reason'])
+        self.assertEqual(115200, self.device.settings['baudrate'])
+
+    def test_agent_lease_blocks_auto_scan_until_released(self):
+        self.subscribe()
+        token = self.client.call('agent.acquire')['token']
+        for _ in range(3000):
+            self.device.input.put(b'hello world\r\n')
+        time.sleep(.8)
+        self.assertEqual(115200, self.device.settings['baudrate'])
+        self.client.call('agent.release', token=token)
+        event, _ = self.wait_event('baud_changed')
+        self.assertEqual(921600, event['to'])
+
+    def test_autobaud_actions_validate_input_and_connection(self):
+        with self.assertRaises(RemoteError) as error:
+            self.client.call('serial.autobaud', mode='turbo')
+        self.assertEqual(error.exception.code, 'invalid_input')
+        with self.assertRaises(RemoteError) as error:
+            self.client.call('serial.autobaud', bauds=[0])
+        self.assertEqual(error.exception.code, 'invalid_input')
+        with self.assertRaises(RemoteError) as error:
+            self.client.call('serial.autobaud.configure', bogus=1)
+        self.assertEqual(error.exception.code, 'invalid_input')
+        state = self.client.call('serial.autobaud.configure', enabled=False)
+        self.assertFalse(state['enabled'])
+        service = SerialService(port=None, tcp=0, control=0,
+                                serial_factory=lambda *_: self.device).start()
+        self.addCleanup(service.close)
+        client = Client(port=service.control_port)
+        self.addCleanup(client.close)
+        with self.assertRaises(RemoteError) as error:
+            client.call('serial.autobaud')
+        self.assertEqual(error.exception.code, 'disconnected')
+
+    def test_manual_baud_change_emits_event_and_raw_notice(self):
+        self.subscribe()
+        raw = socket.create_connection(('127.0.0.1', self.service.tcp_port), timeout=1)
+        self.addCleanup(raw.close)
+        time.sleep(.2)  # let the service register the raw client first
+        self.client.call('serial.baud', baudrate=9600)
+        event, _ = self.wait_event('baud_changed')
+        self.assertEqual(9600, event['to'])
+        self.assertEqual('manual', event['trigger'])
+        raw.settimeout(2)
+        self.assertIn('波特率'.encode('utf-8'), raw.recv(200))
+        self.assertEqual(9600, self.client.call('status')['config']['baudrate'])
+
+
 if __name__ == '__main__':
     unittest.main()

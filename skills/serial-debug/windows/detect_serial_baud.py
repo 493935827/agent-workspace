@@ -2,24 +2,15 @@
 """Identify the UART baud rate: passive listening or active Enter probing."""
 
 import argparse
-import math
 import sys
 import time
-from dataclasses import dataclass
+from pathlib import Path
 
 import serial
 
-
-DEFAULT_BAUDS = (115200, 57600, 38400, 19200, 9600, 230400, 460800, 921600)
-
-
-@dataclass(frozen=True)
-class SampleScore:
-    baud: int
-    byte_count: int
-    printable_ratio: float
-    control_ratio: float
-    score: float
+# Share the scoring core with the bridge's online re-scan (scripts/serial_baud_scan.py).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from serial_baud_scan import DEFAULT_BAUDS, SampleScore, rank_samples, score_sample
 
 
 def parse_bauds(value):
@@ -35,24 +26,6 @@ def parse_bauds(value):
 def parse_probe(value):
     """Turn a CLI escape string like ``\\r`` or ``help\\r`` into probe bytes."""
     return value.encode("utf-8").decode("unicode_escape").encode("utf-8")
-
-
-def score_sample(baud, data):
-    """Score ASCII/UTF-8 console text while penalizing binary-looking data."""
-    if not data:
-        return SampleScore(baud, 0, 0.0, 1.0, float("-inf"))
-
-    decoded = data.decode("utf-8", errors="replace")
-    printable = sum(char in "\b\t\n\r" or char.isprintable() for char in decoded)
-    invalid = decoded.count("\ufffd")
-    controls = sum(not char.isprintable() and char not in "\b\t\n\r" for char in decoded)
-    printable_ratio = printable / len(decoded)
-    control_ratio = (controls + invalid) / len(decoded)
-    line_bonus = 6.0 if b"\n" in data or b"\r" in data else 0.0
-    diversity_bonus = min(len(set(data)), 16) / 4.0
-    length_bonus = min(math.log2(len(data) + 1), 8.0) * 3.0
-    score = printable_ratio * 100.0 - control_ratio * 80.0 + line_bonus + diversity_bonus + length_bonus
-    return SampleScore(baud, len(data), printable_ratio, control_ratio, score)
 
 
 def sample_baud(port, baud, seconds):
@@ -111,27 +84,6 @@ def probe_baud(port, baud, seconds, probe=b"\r", attempts=2):
                 if chunk:
                     collected.extend(chunk)
     return bytes(collected)
-
-
-def rank_samples(samples, min_bytes):
-    """Rank collected samples per baud and pick one unambiguous winner."""
-    scores = sorted(
-        (score_sample(baud, bytes(data)) for baud, data in samples.items()),
-        key=lambda item: item.score,
-        reverse=True,
-    )
-    eligible = [
-        item
-        for item in scores
-        if item.byte_count >= min_bytes
-        and item.printable_ratio >= 0.75
-        and item.control_ratio <= 0.08
-    ]
-    if not eligible:
-        return None, scores, "no_signal"
-    if len(eligible) > 1 and eligible[0].score - eligible[1].score < 8.0:
-        return None, scores, "ambiguous"
-    return eligible[0].baud, scores, None
 
 
 def detect_baud(port, bauds, seconds, rounds, min_bytes, sampler=sample_baud):

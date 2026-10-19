@@ -24,6 +24,17 @@ python scripts/shared_serial_bridge.py bridge --port COM10 --baud 57600 --tcp 88
 
 On Windows, launch the bridge hidden or in a separate terminal so it keeps running.
 
+Append `--autobaud` to monitor the receive stream for sustained garbled output and re-scan the baud rate automatically (passive: no bytes are ever sent). Add `--autobaud-probe` to allow the re-scan to send Enter probes (for devices that go quiet after switching baud). `--autobaud-bauds 115200,921600` narrows the candidate list. While a scan runs, forwarding pauses for a few seconds and every terminal sees a Chinese status line; when a winner is found the bridge switches baud immediately and announces it.
+
+## Online Baud Detection (bridge keeps running)
+
+```bash
+python scripts/shared_serial_bridge.py autobaud --control 8889 --mode passive
+python scripts/shared_serial_bridge.py autobaud --control 8889 --mode active   # sends Enter probes
+```
+
+Runs the same scan on demand against a running bridge (`--control` defaults to raw TCP + 1). Exit codes: `0` detected or confirmed, `2` no signal, `3` ambiguous, `4` bridge unreachable/disconnected, `5` wait timeout, `6` busy or agent-owned. A final `autobaud_result:` line is printed for scripted use.
+
 ## Human Terminal
 
 ```bash

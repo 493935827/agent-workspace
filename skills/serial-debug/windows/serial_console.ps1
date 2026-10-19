@@ -123,6 +123,16 @@ function Start-SerialBridge {
         "--chardelay", [string]$Config.CharDelay,
         "--log", $SerialLog
     )
+    $AutoBaudMonitor = if ($null -ne $Config.AutoBaudMonitor) { [bool]$Config.AutoBaudMonitor } else { $true }
+    if ($AutoBaudMonitor) {
+        $Arguments += "--autobaud"
+        if ($Config.AutoBaudProbe) { $Arguments += "--autobaud-probe" }
+        if ($null -ne $Config.BaudCandidates -and @($Config.BaudCandidates).Count -gt 0) {
+            $Arguments += @("--autobaud-bauds", (($Config.BaudCandidates | ForEach-Object { [int]$_ }) -join ","))
+        }
+        if ($null -ne $Config.AutoBaudSeconds) { $Arguments += @("--autobaud-seconds", [string][double]$Config.AutoBaudSeconds) }
+        if ($null -ne $Config.AutoBaudRounds) { $Arguments += @("--autobaud-rounds", [string][int]$Config.AutoBaudRounds) }
+    }
     $Started = Start-Process -FilePath $Config.Python -ArgumentList $Arguments -WorkingDirectory $ToolDir `
         -WindowStyle Hidden -RedirectStandardOutput $DiagnosticLog `
         -RedirectStandardError $DiagnosticErrorLog -PassThru
@@ -288,6 +298,48 @@ function Get-AttachedSerialPort {
     return ([string]$Picked).Trim()
 }
 
+function Invoke-OnlineBaudDetect {
+    $Config = Get-SerialConfig
+    if ($null -eq (Get-BridgeProcess)) {
+        Write-Host "串口桥未运行：请先选择 1 启动串口桥，再使用在线检测。" -ForegroundColor Yellow
+        return
+    }
+    $ControlPort = [int]$(if ($null -ne $Config.ControlPort) { $Config.ControlPort } else { 8889 })
+    $Probe = Read-Host "是否允许发送回车探测？主动探测适合安静的设备 (y/N)"
+    $Mode = if ($Probe -match "^[yY]") { "active" } else { "passive" }
+    if ($Mode -eq "active") {
+        Write-Host "注意：主动探测会向设备发送回车字节。" -ForegroundColor Yellow
+    }
+    Write-Host "正在在线检测 $($Config.Port) 的波特率（串口桥保持运行）…" -ForegroundColor Cyan
+    $OldEncoding = $null
+    try { $OldEncoding = [Console]::OutputEncoding; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+    $env:PYTHONIOENCODING = "utf-8"
+    try {
+        $Output = & $Config.Python $BridgePath autobaud --host ([string]$Config.Host) --control $ControlPort --mode $Mode --wait 30 2>&1
+        $ExitCode = $LASTEXITCODE
+    }
+    finally {
+        Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue
+        if ($null -ne $OldEncoding) { try { [Console]::OutputEncoding = $OldEncoding } catch { } }
+    }
+    foreach ($Line in @($Output)) { Write-Host $Line }
+    if ($ExitCode -ne 0) {
+        Write-Host "在线检测未成功（退出码 $ExitCode）。串口桥仍在运行，可重试，或选菜单 4 释放后离线检测。" -ForegroundColor Yellow
+        return
+    }
+    $Text = (@($Output) | Out-String)
+    if ($Text -match "to=(\d+)") {
+        $Detected = [int]$Matches[1]
+        if ($Detected -ne [int]$Config.Baud) {
+            $Save = Read-Host "是否把新波特率 $Detected 写入本地配置，供下次启动串口桥使用？(Y/n)"
+            if ($Save -notmatch "^[nN]") {
+                Set-LocalBaud $Detected
+                Write-Host "已写入本地配置：Baud = $Detected" -ForegroundColor Green
+            }
+        }
+    }
+}
+
 function Detect-AndConnectNextSerialPort([switch]$NonInteractive) {
     $Config = Get-SerialConfig
     Assert-PythonAndPySerial $Config
@@ -397,15 +449,21 @@ function Show-Menu {
                 }
                 "10" {
                     Write-Host "波特率检测方式："
-                    Write-Host "  1. 主动探测（发送回车，适合带提示符、不主动输出日志的设备）"
-                    Write-Host "  2. 被动监听（不发送任何数据，需要设备持续输出日志）"
+                    Write-Host "  1. 主动探测（离线；发送回车，适合带提示符、不主动输出日志的设备）"
+                    Write-Host "  2. 被动监听（离线；不发送任何数据，需要设备持续输出日志）"
+                    Write-Host "  3. 在线检测（保持串口桥运行；连接中途波特率变化也可自动感知）"
                     $BaudMode = Read-Host "请选择（默认 1）"
-                    $Baud = if ($BaudMode -eq "2") { Find-SerialBaud -Passive } else { Find-SerialBaud }
-                    if ($null -ne $Baud) {
-                        $StartNow = Read-Host "是否立即启动串口桥并打开终端？(Y/n)"
-                        if ($StartNow -notmatch "^[nN]") {
-                            Start-SerialBridge
-                            Open-SerialTerminal
+                    if ($BaudMode -eq "3") {
+                        Invoke-OnlineBaudDetect
+                    }
+                    else {
+                        $Baud = if ($BaudMode -eq "2") { Find-SerialBaud -Passive } else { Find-SerialBaud }
+                        if ($null -ne $Baud) {
+                            $StartNow = Read-Host "是否立即启动串口桥并打开终端？(Y/n)"
+                            if ($StartNow -notmatch "^[nN]") {
+                                Start-SerialBridge
+                                Open-SerialTerminal
+                            }
                         }
                     }
                 }

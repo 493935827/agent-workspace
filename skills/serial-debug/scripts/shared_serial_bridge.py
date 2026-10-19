@@ -13,6 +13,8 @@ from pathlib import Path
 
 import serial
 
+from serial_baud_scan import DEFAULT_BAUDS
+
 
 LINE_ENDINGS = {"cr": "\r", "lf": "\n", "crlf": "\r\n"}
 BACKSPACES = {"bs": "\x08", "del": "\x7f"}
@@ -43,15 +45,26 @@ def run_bridge(args):
         sys.path.insert(0, script_dir)
     from serial_service import SerialService
 
+    auto_baud = None
+    if getattr(args, 'autobaud', False):
+        auto_baud = dict(enabled=True, active=bool(args.autobaud_probe))
+        if args.autobaud_bauds:
+            auto_baud['bauds'] = args.autobaud_bauds
+        if args.autobaud_seconds is not None:
+            auto_baud['seconds'] = args.autobaud_seconds
+        if args.autobaud_rounds is not None:
+            auto_baud['rounds'] = args.autobaud_rounds
     safe_port = ''.join(c if c.isalnum() else '_' for c in (args.port or 'released'))
     log_path = args.log or f"serial_{safe_port}_{datetime.now():%Y%m%d_%H%M%S}.log"
     service = SerialService(
         port=args.port, baud=args.baud, host=args.host, tcp=args.tcp,
         control=getattr(args, 'control', None) or args.tcp + 1,
         chardelay=args.chardelay, log=log_path, serial_factory=open_serial,
+        auto_baud=auto_baud,
     ).start()
     print(f"bridge_start port={args.port} baud={args.baud} "
-          f"tcp={args.host}:{service.tcp_port} control={service.control_port} log={log_path}", flush=True)
+          f"tcp={args.host}:{service.tcp_port} control={service.control_port} log={log_path} "
+          f"autobaud={'on' if auto_baud else 'off'}", flush=True)
     try:
         while not service.stop.wait(.2):
             pass
@@ -206,6 +219,69 @@ def run_connect(args):
         print("\n已退出串口终端")
 
 
+def run_autobaud(args):
+    """Trigger an online baud scan on a running bridge and report the outcome."""
+    from serial_service_client import Client, RemoteError
+
+    try:
+        client = Client(args.host, args.control, timeout=5)
+    except OSError as exc:
+        sys.stderr.write(f"[串口桥] 无法连接控制端口 {args.host}:{args.control}：{exc}\n")
+        return 4
+    try:
+        status = client.call('status')
+        if not status.get('connected'):
+            sys.stderr.write("[串口桥] 串口桥未连接物理串口，无法在线检测波特率。\n")
+            return 4
+        before = client.call('autobaud.status')
+        params = dict(mode=args.mode, seconds=args.seconds, rounds=args.rounds)
+        if args.bauds:
+            params['bauds'] = list(args.bauds)
+        if args.min_bytes:
+            params['min_bytes'] = args.min_bytes
+        try:
+            client.call('serial.autobaud', **params)
+        except RemoteError as exc:
+            sys.stderr.write(f"[串口桥] 无法开始在线检测：{exc}\n")
+            return 6 if exc.code in ('occupied', 'busy') else 4
+        deadline = time.monotonic() + args.wait
+        state = before
+        while True:
+            state = client.call('autobaud.status')
+            if not state.get('scanning') and not state.get('requested'):
+                break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.3)
+        if state.get('scanning'):
+            sys.stderr.write("[串口桥] 等待超时，扫描仍在进行；可用 autobaud.status 查询结果。\n")
+            return 5
+        if state.get('last_reason'):
+            print(f"在线检测失败：{state['last_reason']}", file=sys.stderr)
+            return 3 if state['last_reason'] == 'ambiguous' else 2
+        change = state.get('last_change')
+        if change and change != before.get('last_change'):
+            print(f"在线检测完成：波特率已从 {change['from']} 切换为 {change['to']}")
+            print(f"autobaud_result: changed from={change['from']} to={change['to']}")
+            return 0
+        baud = status.get('config', {}).get('baudrate')
+        print(f"在线检测完成：波特率保持 {baud}")
+        print(f"autobaud_result: unchanged baud={baud}")
+        return 0
+    finally:
+        client.close()
+
+
+def bauds_list(value):
+    try:
+        bauds = tuple(dict.fromkeys(int(item.strip()) for item in value.split(",") if item.strip()))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("波特率列表必须是逗号分隔的正整数") from exc
+    if not bauds or any(baud <= 0 for baud in bauds):
+        raise argparse.ArgumentTypeError("波特率列表必须包含正整数")
+    return bauds
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="共享串口桥")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -218,7 +294,29 @@ def build_parser():
     bridge.add_argument("--chardelay", type=float, default=0.0)
     bridge.add_argument("--log")
     bridge.add_argument("--control", type=int, help="Management TCP port; default raw TCP + 1")
+    bridge.add_argument("--autobaud", action="store_true",
+                        help="监视接收乱码并自动重扫波特率（被动，不发送任何数据）")
+    bridge.add_argument("--autobaud-probe", action="store_true",
+                        help="允许自动重扫发送回车探测（适合安静设备；默认关闭）")
+    bridge.add_argument("--autobaud-bauds", type=bauds_list, default=None,
+                        help="自动重扫候选波特率，逗号分隔（默认 " + ",".join(map(str, DEFAULT_BAUDS)) + "）")
+    bridge.add_argument("--autobaud-seconds", type=float, default=None,
+                        help="自动重扫每个候选的监听秒数（默认 0.5）")
+    bridge.add_argument("--autobaud-rounds", type=int, default=None,
+                        help="自动重扫轮数（默认 1）")
     bridge.set_defaults(func=run_bridge)
+
+    autobaud = commands.add_parser("autobaud", help="对运行中的串口桥发起在线波特率检测（桥保持运行）")
+    autobaud.add_argument("--host", default="127.0.0.1")
+    autobaud.add_argument("--control", type=int, default=8889, help="控制端口（默认 raw TCP + 1）")
+    autobaud.add_argument("--mode", choices=("passive", "active"), default="passive",
+                          help="passive 只监听；active 会发送回车探测")
+    autobaud.add_argument("--bauds", type=bauds_list, default=None, help="候选波特率，逗号分隔")
+    autobaud.add_argument("--seconds", type=float, default=0.5, help="每个候选每轮监听秒数")
+    autobaud.add_argument("--rounds", type=int, default=1, help="轮询候选的轮数")
+    autobaud.add_argument("--min-bytes", type=int, default=None, help="判定所需最少接收字节数")
+    autobaud.add_argument("--wait", type=float, default=30.0, help="等待扫描完成的最长秒数")
+    autobaud.set_defaults(func=run_autobaud)
 
     connect = commands.add_parser("connect", help="打开交互串口终端")
     connect.add_argument("--host", default="127.0.0.1")
