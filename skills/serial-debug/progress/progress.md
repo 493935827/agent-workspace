@@ -23,6 +23,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-20 / 全代码审查 + 快修包 | 4 路并行整体审查核心代码（4 P1 / 10 P2 / 16 P3，P1 均经源码核实；77 项基线复跑全绿）；快修 8 文件：autobaud 请求锁内赋值 + 断连/释放清挂起扫描、run_autobaud 退出码 4/5 修正、被动检测 DTR/RTS 拉低、parse_probe 非 ASCII 修复、ps1 补 `-Passive`/pid 容错/慢启动不误删；+7 回归测试（定向 34 绿，全套 100 绿 + 1 项无关负载抖动）；提交 `5bd9670` 待网络恢复推送；未修 P1/PS 5.1/测试缺口清单在 handoff | [Code review quickfix](handoff-20261020-153500-code-review-quickfix.md) |
 | 2026-10-20 / GUI 共享串口桥分组与一键停止 | 设置页新增「共享串口桥」分组（连接 / 接管 / 新按钮「停止桥并释放端口」，按会话类型显隐）；一键停止走 `ServiceStopWorker`：status 取 instance → 必要时收回 Agent 租约 → `service.stop`，桥退出即释放串口并自动退役残留 worker；新增 5 项测试，全套 77 项通过；源码改动已随 `67255ca` 入库（并行会话顺带提交），补提交 `4695a90` 已推送；实机验收待板子 | [GUI bridge stop group](handoff-20261020-105711-gui-bridge-stop-group.md) |
 | 2026-10-20 / 共享连接发数据失效修复 | 定位根因：服务端给 call 连接设 30 秒空闲超时，GUI 停留超时后呼叫通道被静默关闭而订阅通道存活，会话假在线、每次发送仅一条 WARN；修复为服务端去空闲超时 + 两个客户端 `Client.call` 通道自愈（不自动重发）；31 秒复现修复前红/修复后绿；2 项回归测试；72 项测试通过；修复随 `c6c3afa` 推送 | [Shared-connection send fix](handoff-20261020-104500-shared-connection-send-fix.md) |
 | 2026-10-20 / GUI 在线波特率检测 + 连接中自动感知 | 复诊菜单 5「用不了」= 板子未接入；服务端乱码监视+自动重扫（`af63f9c`）；GUI 直连/服务会话接入检测按钮与自动感知（`67255ca`）；按用户切分代为提交并行会话连接修复（`c6c3afa`）；77 项测试通过；实机漂移验收待板子 | [GUI online baud detect](handoff-20261020-104200-gui-online-baud-detect.md) |
