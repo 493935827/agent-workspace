@@ -2,7 +2,8 @@
 param(
     [ValidateSet("Menu", "Start", "Stop", "Release", "Status", "Connect", "Send", "Ports", "AutoDetect", "DetectConnect", "AutoBaud")]
     [string]$Action = "Menu",
-    [string]$Command
+    [string]$Command,
+    [switch]$Passive
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,7 +73,19 @@ function Set-LocalBaud([int]$Baud) {
 
 function Get-BridgeProcess {
     if (-not (Test-Path -LiteralPath $PidPath)) { return $null }
-    $SavedPid = [int](Get-Content -LiteralPath $PidPath -Raw)
+    $SavedPid = 0
+    try {
+        $SavedPid = [int](Get-Content -LiteralPath $PidPath -Raw -ErrorAction Stop)
+    }
+    catch {
+        # A truncated or hand-mangled pid file must not wedge Status/Start/Stop.
+        Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+    if ($SavedPid -le 0) {
+        Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
+        return $null
+    }
     $ProcessInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $SavedPid" -ErrorAction SilentlyContinue
     if ($null -eq $ProcessInfo -or $ProcessInfo.CommandLine -notlike "*shared_serial_bridge.py*bridge*") {
         Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
@@ -138,13 +151,26 @@ function Start-SerialBridge {
         -RedirectStandardError $DiagnosticErrorLog -PassThru
     Set-Content -LiteralPath $PidPath -Value $Started.Id -Encoding ascii
     Start-Sleep -Milliseconds 900
+    # Slow starts (antivirus, cold Python) must not orphan a live bridge: keep
+    # probing while the recorded PID is alive, and never delete the pid file
+    # for a process that is still running.
     $Running = Get-BridgeProcess
-    if ($null -eq $Running -or -not (Test-TcpEndpoint $Config.Host $Config.TcpPort)) {
+    $Deadline = (Get-Date).AddSeconds(6)
+    while ($null -ne $Running -and -not (Test-TcpEndpoint $Config.Host $Config.TcpPort) -and (Get-Date) -lt $Deadline) {
+        Start-Sleep -Milliseconds 300
+        $Running = Get-BridgeProcess
+    }
+    if ($null -eq $Running) {
         Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
         $Details = if (Test-Path -LiteralPath $DiagnosticErrorLog) {
             Get-Content -LiteralPath $DiagnosticErrorLog -Raw
         } else { "没有诊断输出。" }
         throw "串口桥启动失败，请检查 COM 口、波特率以及串口是否被其他软件占用。`n$Details"
+    }
+    if (-not (Test-TcpEndpoint $Config.Host $Config.TcpPort)) {
+        # The bridge process is alive but the endpoint is not ready yet; keep
+        # the pid file so Status/Stop can still manage it.
+        throw "串口桥进程已启动但共享地址 $($Config.Host):$($Config.TcpPort) 迟迟未就绪；请稍后重试状态查看，或停止后重新启动。"
     }
     Write-Host "已启动：$($Config.Port)，$($Config.Baud) 波特" -ForegroundColor Green
     Write-Host "共享地址：$($Config.Host):$($Config.TcpPort)"
@@ -262,6 +288,7 @@ function Find-SerialBaud([switch]$Passive) {
     if ($Passive) {
         Write-Host "正在被动检测 $($Config.Port) 的波特率，不会向设备发送数据。" -ForegroundColor Cyan
         Write-Host "请让设备持续输出日志；如果只在启动时输出，请在检测期间反复按开发板复位键。"
+        Write-Host "被动检测会多次打开/关闭串口，但 DTR/RTS 保持为低，不会借此复位设备。"
     }
     else {
         $DetectorArguments += "--active"
@@ -493,7 +520,7 @@ switch ($Action) {
     }
     "Ports"      { Show-SerialPorts }
     "AutoDetect" { Find-NextSerialPort | Out-Null }
-    "AutoBaud"   { Find-SerialBaud | Out-Null }
+    "AutoBaud"   { Find-SerialBaud -Passive:$Passive | Out-Null }
     "DetectConnect" { Detect-AndConnectNextSerialPort -NonInteractive }
     default      { Show-Menu }
 }

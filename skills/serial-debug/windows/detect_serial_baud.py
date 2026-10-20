@@ -25,7 +25,9 @@ def parse_bauds(value):
 
 def parse_probe(value):
     """Turn a CLI escape string like ``\\r`` or ``help\\r`` into probe bytes."""
-    return value.encode("utf-8").decode("unicode_escape").encode("utf-8")
+    # latin-1 round-trips the UTF-8 bytes that unicode_escape re-mapped, so
+    # non-ASCII probes (e.g. ``复位\\r``) reach the device unchanged.
+    return value.encode("utf-8").decode("unicode_escape").encode("latin-1")
 
 
 def sample_baud(port, baud, seconds):
@@ -43,6 +45,10 @@ def sample_baud(port, baud, seconds):
         xonxoff=False,
         rtscts=False,
         dsrdtr=False,
+        # Hold DTR/RTS low: opening the port must not reset boards that wire
+        # these lines to reset/boot mode during "passive" detection.
+        rts=False,
+        dtr=False,
     ) as connection:
         connection.reset_input_buffer()
         while time.monotonic() < deadline:

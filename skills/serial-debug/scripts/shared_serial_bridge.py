@@ -253,8 +253,11 @@ def run_autobaud(args):
             if time.monotonic() >= deadline:
                 break
             time.sleep(0.3)
-        if state.get('scanning'):
-            sys.stderr.write("[串口桥] 等待超时，扫描仍在进行；可用 autobaud.status 查询结果。\n")
+        # 'requested' without 'scanning' means the queued scan never started
+        # (the device vanished after serial.autobaud); reporting "unchanged"
+        # would hide the failure, and later scans keep answering 'busy'.
+        if state.get('scanning') or state.get('requested'):
+            sys.stderr.write("[串口桥] 等待超时，扫描仍在进行或尚未开始；可用 autobaud.status 查询结果。\n")
             return 5
         if state.get('last_reason'):
             print(f"在线检测失败：{state['last_reason']}", file=sys.stderr)
@@ -268,6 +271,12 @@ def run_autobaud(args):
         print(f"在线检测完成：波特率保持 {baud}")
         print(f"autobaud_result: unchanged baud={baud}")
         return 0
+    except (OSError, EOFError, RemoteError) as exc:
+        # A dead control channel means the scan outcome is unknown (exit 4 =
+        # bridge unreachable), not 'no signal' (2): the generic OSError handler
+        # in main() would otherwise misreport it to automation.
+        sys.stderr.write(f"[串口桥] 控制连接在检测期间断开：{exc}\n")
+        return 4
     finally:
         client.close()
 

@@ -292,6 +292,43 @@ class AutoBaudTests(unittest.TestCase):
         self.assertEqual('no_signal', state['last_reason'])
         self.assertEqual(115200, self.device.settings['baudrate'])
 
+    def test_serial_close_drops_pending_scan_request(self):
+        # Regression: a queued (not yet started) scan request used to survive
+        # an explicit release; 'requested' then stayed on forever, the CLI
+        # wait reported bogus success and later scans answered 'busy'.
+        # The transition guard keeps the monitor loop from picking the request
+        # up; _device_action is invoked under the lock exactly as action()
+        # calls it, because the action() entry refuses requests during a
+        # transition.
+        with self.service.lock:
+            self.service.transition = 'baud_scan'
+            self.service.scan_requested = dict(mode='passive', bauds=(921600,),
+                                               seconds=0.05, rounds=1, min_bytes=8,
+                                               probe=None, manual=True)
+            self.service._device_action('serial.close', {})
+        self.assertFalse(self.client.call('autobaud.status')['requested'])
+        self.assertTrue(self.device.closed)
+
+    def test_device_loss_drops_pending_scan_request(self):
+        # Same contract for the unplug path: the reader's SerialException must
+        # discard the pending request together with the device.
+        with self.service.lock:
+            self.service.transition = 'baud_scan'
+            self.service.scan_requested = dict(mode='passive', bauds=(921600,),
+                                               seconds=0.05, rounds=1, min_bytes=8,
+                                               probe=None, manual=True)
+        self.device.closed = True  # next read() raises, like a USB unplug
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            state = self.client.call('autobaud.status')
+            if not state['requested']:
+                break
+            time.sleep(.02)
+        else:
+            self.fail('pending scan request survived the device loss')
+        self.assertFalse(self.client.call('status')['connected'])
+        self.assertTrue(self.device.closed)
+
     def test_agent_lease_blocks_auto_scan_until_released(self):
         self.subscribe()
         token = self.client.call('agent.acquire')['token']

@@ -10,9 +10,15 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "shared_serial_bridge.py"
+# Normally inherited from test_detect_serial_baud (alphabetically first);
+# declared here so this file also runs standalone.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import serial_service_client  # noqa: E402
+
 SPEC = importlib.util.spec_from_file_location("shared_serial_bridge", SCRIPT)
 BRIDGE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BRIDGE)
@@ -242,6 +248,88 @@ class SharedSerialBridgeTests(unittest.TestCase):
             result = BRIDGE.run_send(args)
         self.assertEqual(result, 2)
         self.assertIn("连接已经断开", stderr.getvalue())
+
+
+class RunAutoBaudExitCodeTests(unittest.TestCase):
+    """The autobaud CLI must keep its documented exit-code contract at the
+    failure seams: a dead control connection is 4 (bridge unreachable), not
+    the generic OSError exit 2 ('no signal') that automation would misread;
+    and a queued scan that never started must time out as 5, not fall through
+    to a bogus 'unchanged' success."""
+
+    @staticmethod
+    def _args(**overrides):
+        base = dict(host="127.0.0.1", control=8889, mode="passive", bauds=None,
+                    seconds=0.5, rounds=1, min_bytes=None, wait=30.0)
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def test_control_channel_death_maps_to_exit_4(self):
+        class DyingClient:
+            def __init__(self, *_args, **_kwargs):
+                self.calls = 0
+
+            def call(self, action, **_params):
+                self.calls += 1
+                if action == "status":
+                    return dict(connected=True, config={"baudrate": 115200})
+                if self.calls == 2:  # the 'before' snapshot
+                    return dict(scanning=False, requested=False,
+                                last_reason=None, last_change=None)
+                raise OSError("connection reset")
+
+            def close(self):
+                pass
+
+        with mock.patch.object(serial_service_client, "Client", DyingClient):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                result = BRIDGE.run_autobaud(self._args())
+        self.assertEqual(4, result)
+        self.assertIn("断开", stderr.getvalue())
+
+    def test_never_started_scan_times_out_with_exit_5(self):
+        class StuckClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def call(self, action, **_params):
+                if action == "status":
+                    return dict(connected=True, config={"baudrate": 115200})
+                # requested but never picked up: the device vanished after
+                # serial.autobaud queued the request.
+                return dict(scanning=False, requested=True,
+                            last_reason=None, last_change=None)
+
+            def close(self):
+                pass
+
+        with mock.patch.object(serial_service_client, "Client", StuckClient):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                result = BRIDGE.run_autobaud(self._args(wait=0.05))
+        self.assertEqual(5, result)
+
+    def test_completed_scan_still_reports_unchanged_exit_0(self):
+        class DoneClient:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def call(self, action, **_params):
+                if action == "status":
+                    return dict(connected=True, config={"baudrate": 115200})
+                return dict(scanning=False, requested=False,
+                            last_reason=None, last_change=None)
+
+            def close(self):
+                pass
+
+        with mock.patch.object(serial_service_client, "Client", DoneClient):
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                result = BRIDGE.run_autobaud(self._args())
+        self.assertEqual(0, result)
+        self.assertIn("autobaud_result: unchanged baud=115200", stdout.getvalue())
 
 
 if __name__ == "__main__":

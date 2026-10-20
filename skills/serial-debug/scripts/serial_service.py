@@ -448,6 +448,9 @@ class SerialService:
         try:
             if releasing:
                 self.reconnect = False
+                # Explicit release must also drop a queued (not yet started)
+                # scan request; the device it targeted is going away.
+                self.scan_requested = None
                 self._cancel_jobs()
             self._wait_active()
             if action in ('serial.configure', 'serial.baud') and self.device and config['port'] == self.config['port']:
@@ -492,6 +495,10 @@ class SerialService:
             self.device = None
             self.last_error = str(error)
             self.token = None
+            # A queued scan request dies with the device: leaving it set kept
+            # 'requested' stuck on, reporting bogus success and blocking later
+            # scans with 'busy' until the port returned.
+            self.scan_requested = None
             self._cancel_jobs()
             if self.active:
                 self.transition = 'revoking'
@@ -690,9 +697,11 @@ class SerialService:
                 raise ActionError('disconnected', 'Device is not connected')
             if self.scan_active or self.scan_requested:
                 raise ActionError('busy', 'A baud scan is already pending or running')
-        self.scan_requested = dict(mode=mode, bauds=tuple(bauds), seconds=float(seconds),
-                                   rounds=int(rounds), min_bytes=int(min_bytes),
-                                   probe=b"\r" if mode == 'active' else None, manual=True)
+            # Assign under the lock so concurrent requests cannot both pass the
+            # busy check and silently overwrite each other.
+            self.scan_requested = dict(mode=mode, bauds=tuple(bauds), seconds=float(seconds),
+                                       rounds=int(rounds), min_bytes=int(min_bytes),
+                                       probe=b"\r" if mode == 'active' else None, manual=True)
         self._scan_wakeup.set()
         return self._auto_baud_public()
 

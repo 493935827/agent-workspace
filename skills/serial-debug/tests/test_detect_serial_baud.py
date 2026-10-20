@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).parents[1] / "windows" / "detect_serial_baud.py"
@@ -113,6 +114,42 @@ class DetectSerialBaudTests(unittest.TestCase):
         self.assertEqual(b"\r", MODULE.parse_probe("\\r"))
         self.assertEqual(b"\n", MODULE.parse_probe("\\n"))
         self.assertEqual(b"help\r", MODULE.parse_probe("help\\r"))
+
+    def test_parse_probe_keeps_non_ascii_bytes(self):
+        # unicode_escape re-maps UTF-8 bytes as latin-1; encoding back with
+        # latin-1 (not utf-8) restores them, so Chinese probe commands reach
+        # the device byte-for-byte.
+        self.assertEqual("复位\r".encode("utf-8"), MODULE.parse_probe("复位\\r"))
+
+    def test_passive_sampling_holds_control_lines_low(self):
+        seen = {}
+        reads = iter([b"atom>> "])
+
+        class FakeSerial:
+            def __init__(self, **kwargs):
+                seen.update(kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc):
+                return False
+
+            def reset_input_buffer(self):
+                pass
+
+            @property
+            def in_waiting(self):
+                return 1
+
+            def read(self, _size):
+                return next(reads, b"")
+
+        with mock.patch.object(MODULE.serial, "Serial", FakeSerial):
+            data = MODULE.sample_baud("COM_TEST", 115200, 0.05)
+        self.assertEqual(b"atom>> ", data)
+        self.assertFalse(seen.get("rts", True), "passive detection must hold RTS low")
+        self.assertFalse(seen.get("dtr", True), "passive detection must hold DTR low")
 
 
 if __name__ == "__main__":
