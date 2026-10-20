@@ -78,6 +78,7 @@ class SerialService:
         self.scan_requested = None
         self.scan_active = False
         self._scan_wakeup = threading.Event()
+        self.scan_abort = threading.Event()
         self._suspect_window = deque()
 
     def _thread(self, target, *args):
@@ -406,7 +407,31 @@ class SerialService:
                 raise ActionError('busy', 'Writer has not stopped; control has NOT been returned')
             self.changed.wait(remaining)
 
+    def _abort_scan_and_wait(self, timeout=3.0):
+        """Abort an in-flight baud scan and wait until it released the device.
+
+        The scan thread owns the device (its read buffer and apply_settings)
+        while it holds the 'baud_scan' transition. Takeover and device actions
+        must wait it out instead of silently clobbering the transition, which
+        used to let the writer resume at the candidate baud and let the scan
+        flip the baud under the new owner. Called under self.lock; the wait
+        releases the lock so the scan's cleanup can run, and the scan cleanup
+        notifies self.changed to wake us. Callers keep the transition held (or
+        are the takeover path), so no new scan can start while we wait.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            with self.lock:
+                if not self.scan_active:
+                    return
+                self.scan_abort.set()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ActionError('busy', 'Baud scan did not stop; control has NOT been returned')
+                self.changed.wait(remaining)
+
     def _revoke(self):
+        self._abort_scan_and_wait()
         self.token = None
         self.transition = 'revoking'
         self._cancel_jobs()
@@ -446,6 +471,9 @@ class SerialService:
         releasing = action in ('serial.close', 'serial.reconnect', 'serial.open', 'service.stop')
         self.transition = action
         try:
+            # Hold the transition first, then wait out a running scan: the
+            # monitor loop cannot start a new scan while a transition is set.
+            self._abort_scan_and_wait()
             if releasing:
                 self.reconnect = False
                 # Explicit release must also drop a queued (not yet started)
@@ -535,13 +563,17 @@ class SerialService:
     def _raw_notice(self, text):
         """Inject a human-readable status line into every raw TCP client."""
         data = f"\r\n[串口桥] {text}\r\n".encode('utf-8')
-        for sock, outgoing in list(self.raw_clients.items()):
-            try:
-                outgoing.put_nowait(data)
-            except queue.Full:
-                self.client_drops += 1
-                close_socket(sock)
-                self.raw_clients.pop(sock, None)
+        # raw_clients is shared with the reader, the raw handlers and the
+        # scan thread; dropping a dead client must hold the lock or the
+        # reader's del can race this pop into a thread-killing KeyError.
+        with self.lock:
+            for sock, outgoing in list(self.raw_clients.items()):
+                try:
+                    outgoing.put_nowait(data)
+                except queue.Full:
+                    self.client_drops += 1
+                    close_socket(sock)
+                    self.raw_clients.pop(sock, None)
 
     def _auto_baud_feed(self, data, now):
         """Called with the lock held: watch RX for sustained garbled output."""
@@ -585,6 +617,7 @@ class SerialService:
                         self.transition = 'baud_scan'
             if request is None:
                 continue
+            self.scan_abort.clear()
             try:
                 self._perform_scan(request)
             except Exception as exc:  # the monitor thread must survive anything
@@ -599,7 +632,11 @@ class SerialService:
             finally:
                 with self.lock:
                     self.scan_active = False
-                    self.transition = None
+                    # Clear only our own transition: with the abort handshake
+                    # a takeover or device action may already hold 'revoking'
+                    # or its own action transition when the scan stops.
+                    if self.transition == 'baud_scan':
+                        self.transition = None
                     self._suspect_window.clear()
                     self.changed.notify_all()
                     self._emit('state', state=self.status())
@@ -619,8 +656,8 @@ class SerialService:
             ('主动' if mode == 'active' else '被动', ', '.join(str(b) for b in candidates)))
         winner, scores, reason = scan_open_device(
             device, candidates, request['seconds'], request['rounds'], request['min_bytes'],
-            probe=request.get('probe'),
-            applier=lambda baud: device.apply_settings({'baudrate': baud}))
+            probe=request.get('probe'), applier=lambda baud: device.apply_settings({'baudrate': baud}),
+            should_abort=self.scan_abort.is_set)
         with self.lock:
             state = self.auto_baud_state
             now = time.monotonic()
@@ -772,9 +809,14 @@ class SerialService:
                         try:
                             outgoing.put_nowait(data)
                         except queue.Full:
-                            self.client_drops += 1
-                            close_socket(sock)
-                            del self.raw_clients[sock]
+                            with self.lock:
+                                # pop-with-default: another locked mutator
+                                # (raw notice/handler) may have dropped this
+                                # client already; a KeyError here used to kill
+                                # the reader thread and stop all RX forwarding.
+                                if self.raw_clients.pop(sock, None) is not None:
+                                    self.client_drops += 1
+                                    close_socket(sock)
 
     def _raw_writer(self, sock, outgoing):
         try:
@@ -808,10 +850,18 @@ class SerialService:
                     continue
                 if not data:
                     return
-                self.action('send', dict(data=base64.b64encode(data).decode(), format='base64'))
-        except ActionError as exc:
-            self._emit('raw_rejected', reason=exc.code, message=str(exc))
-            return
+                try:
+                    self.action('send', dict(data=base64.b64encode(data).decode(), format='base64'))
+                except ActionError as exc:
+                    # A rejected send must not disconnect the raw terminal: a
+                    # human typing while an agent holds the lease used to be
+                    # kicked (and reconnected) for every keypress. Tell the
+                    # operator on this connection and keep listening.
+                    self._emit('raw_rejected', reason=exc.code, message=str(exc))
+                    try:
+                        outgoing.put_nowait(f"\r\n[串口桥] 发送被拒绝：{exc}\r\n".encode('utf-8'))
+                    except queue.Full:
+                        pass
         finally:
             with self.lock:
                 self.raw_clients.pop(sock, None)

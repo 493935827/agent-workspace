@@ -301,13 +301,14 @@ class ServiceWorker(threading.Thread):
     (service status dict) and 'peer_tx' (bytes another client wrote).
     """
 
-    def __init__(self, service, events, client_factory=ServiceClient):
+    def __init__(self, service, events, client_factory=ServiceClient, probe_interval=1.0):
         super().__init__(daemon=True, name=f"service:{service['host']}:{service['control']}")
         self.service = dict(service)
         self.options = {'port': self.service.get('name') or
                         f"service:{service['host']}:{service['control']}/{service['device']}"}
         self.events = events
         self.client_factory = client_factory
+        self.probe_interval = probe_interval
         self.commands = queue.Queue(maxsize=256)
         self.controls = queue.Queue(maxsize=16)
         self.stopped = threading.Event()
@@ -321,7 +322,8 @@ class ServiceWorker(threading.Thread):
                 return
             except queue.Full:
                 if self.stopped.is_set() and kind not in ('closed', 'error', 'sent', 'rx',
-                                                          'peer_tx', 'service_state', 'baud_notice'):
+                                                          'peer_tx', 'service_state', 'baud_notice',
+                                                          'takeover_failed'):
                     return
 
     def run(self):
@@ -338,13 +340,38 @@ class ServiceWorker(threading.Thread):
             self.status = status
             self.emit('service_state', status)
             self.emit('opened')
+            next_probe = time.monotonic() + self.probe_interval
+            probe_failures = 0
+            last_gaps = client.gaps
             while not self.stopped.is_set():
+                # The event subscription can die out-of-band (dead bridge);
+                # nobody consumes `gaps`, so probe the call channel instead of
+                # spinning forever on a session that only looks connected.
+                if client.gaps != last_gaps:
+                    last_gaps = client.gaps
+                    next_probe = 0.0
+                now = time.monotonic()
+                if now >= next_probe:
+                    next_probe = now + self.probe_interval
+                    try:
+                        client.call('status')
+                        probe_failures = 0
+                    except Exception as exc:
+                        # One failure may be a transient channel hiccup (the
+                        # client rebuilds it); a second failure on the fresh
+                        # channel means the bridge is gone.
+                        probe_failures += 1
+                        if probe_failures >= 2:
+                            raise OSError(f'共享串口桥已失联：{exc}') from exc
                 if self.takeover.is_set():
                     self.takeover.clear()
                     try:
                         client.call('agent.takeover')
                     except Exception as exc:
-                        self.emit('error', f'接管失败：{exc}')
+                        # Non-fatal: the bridge and the device are fine, only
+                        # the takeover was refused. A fatal 'error' here used
+                        # to poison the healthy session.
+                        self.emit('takeover_failed', f'接管失败：{exc}')
                 self.drain_controls(client)
                 self.drain_commands(client, pending)
                 self.pump_events(client, pending, tx_bytes)
@@ -1047,6 +1074,9 @@ class Workbench(Preview):
                 self.append(index, 'WARN', message)
                 if self.macro_job and token is self.macro_job.get('token'):
                     self.stop_macro(message)
+            elif kind == 'takeover_failed':
+                # Non-fatal: the transport is alive; the operator can retry.
+                self.append(index, 'WARN', payload)
             elif kind == 'error':
                 s.update(state='error', connected_at=None)
                 self.append(index, 'ERROR', payload)

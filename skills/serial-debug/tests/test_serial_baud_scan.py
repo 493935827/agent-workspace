@@ -92,6 +92,44 @@ class ScanOpenDeviceTests(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertEqual({123, 9600}, {item.baud for item in scores})
 
+    def test_abort_stops_the_sweep_and_restores_start_baud(self):
+        # The bridge hands should_abort to every live scan so a takeover or
+        # device action can reclaim the port instead of clobbering the scan's
+        # transition while the scan still owns the device.
+        device = FakeDevice(payload=b'')
+        applied = []
+        original_apply = device.apply_settings
+
+        def tracking_apply(settings):
+            applied.append(settings.get('baudrate'))
+            return original_apply(settings)
+
+        device.apply_settings = tracking_apply
+        state = dict(calls=0)
+
+        def abort_at_third_check():
+            state['calls'] += 1
+            return state['calls'] > 2
+
+        winner, _scores, reason = scan_open_device(
+            device, (115200, 9600, 19200), seconds=0.05, rounds=1, min_bytes=4,
+            should_abort=abort_at_third_check)
+        self.assertIsNone(winner)
+        self.assertEqual('interrupted', reason)
+        self.assertEqual(115200, device.settings['baudrate'])
+        self.assertNotIn(9600, applied)
+        self.assertNotIn(19200, applied)
+
+    def test_abort_before_first_candidate_probes_nothing(self):
+        device = FakeDevice(payload=b'')
+        winner, _scores, reason = scan_open_device(
+            device, (9600,), seconds=0.02, rounds=1, min_bytes=4,
+            should_abort=lambda: True)
+        self.assertIsNone(winner)
+        self.assertEqual('interrupted', reason)
+        self.assertEqual(115200, device.settings['baudrate'])
+        self.assertEqual(b'', bytes(device.writes))
+
 
 if __name__ == '__main__':
     unittest.main()

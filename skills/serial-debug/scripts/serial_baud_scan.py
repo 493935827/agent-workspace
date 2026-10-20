@@ -89,9 +89,11 @@ def rank_samples(samples, min_bytes):
 SAMPLE_CAP = 512 * 1024
 
 
-def _read_window(device, seconds, collector):
+def _read_window(device, seconds, collector, abort=None):
     deadline = time.monotonic() + max(seconds, 0.0)
     while time.monotonic() < deadline:
+        if abort is not None and abort():
+            return False
         if len(collector) >= SAMPLE_CAP:
             return True
         try:
@@ -122,19 +124,25 @@ def _start_baud(device):
 
 
 def scan_open_device(device, bauds, seconds, rounds, min_bytes, probe=None, attempts=1,
-                     reader=None, applier=None, writer=None):
+                     reader=None, applier=None, writer=None, should_abort=None):
     """Sweep candidate baud rates on an already-open device.
 
     ``reader(device, seconds, collector)`` defaults to a plain read loop;
     ``applier(baud)`` and ``writer(device, data)`` default to the device's own
     ``apply_settings``/``write``. The scan always restores the starting baud
     before returning; applying a winning baud is the caller's decision.
+    ``should_abort()`` is polled between candidates and between reads so the
+    bridge can reclaim the device mid-sweep (takeover, device actions); an
+    abort reports the same ``'interrupted'`` reason as a failed read.
 
     Returns ``(winner_baud_or_None, scores, reason)`` with the same contract as
     :func:`rank_samples`.
     """
     if reader is None:
-        reader = _read_window
+        def reader(device, seconds, collector):
+            # The built-in reader honors cooperative aborts; custom readers
+            # keep their (device, seconds, collector) contract.
+            return _read_window(device, seconds, collector, abort=should_abort)
     start = _start_baud(device)
     candidates = []
     for baud in bauds:
@@ -146,6 +154,9 @@ def scan_open_device(device, bauds, seconds, rounds, min_bytes, probe=None, atte
     try:
         for _ in range(max(1, rounds)):
             for baud in candidates:
+                if should_abort is not None and should_abort():
+                    interrupted = True
+                    break
                 if not _apply_baud(device, baud, applier):
                     continue
                 if probe:
