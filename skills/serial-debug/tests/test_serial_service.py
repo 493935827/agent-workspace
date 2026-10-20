@@ -187,6 +187,10 @@ class DriftSerial:
             return chunk
         return bytes(255 - byte for byte in chunk)  # bit-inverted: unreadable noise
 
+    @property
+    def in_waiting(self):
+        return self.input.qsize()
+
     def write(self, data):
         if self.closed:
             raise OSError('closed')

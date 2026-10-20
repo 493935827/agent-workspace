@@ -13,7 +13,9 @@ import uuid
 import serial
 from serial.tools import list_ports
 from serial_protocol import VERSION, ActionError, encode, payload, read_message
-from serial_baud_scan import DEFAULT_BAUDS, readability, scan_open_device
+from serial_baud_scan import (COOLDOWN_FAIL, COOLDOWN_SUCCESS, DEFAULT_BAUDS, MONITOR_MIN_BYTES,
+                              MONITOR_THRESHOLD, MONITOR_WINDOW, readability, scan_open_device)
+
 
 # Control (call) connections idle for as long as the human steps away between
 # commands, so they must not carry a socket read timeout: the GUI only writes
@@ -23,8 +25,9 @@ CONTROL_READ_TIMEOUT = None
 
 AUTO_BAUD_DEFAULTS = dict(enabled=False, active=False, bauds=DEFAULT_BAUDS,
                           seconds=0.5, rounds=1, min_bytes=None,
-                          threshold=0.55, window_seconds=3.0, min_suspect_bytes=48,
-                          cooldown_success=5.0, cooldown_fail=20.0)
+                          threshold=MONITOR_THRESHOLD, window_seconds=MONITOR_WINDOW,
+                          min_suspect_bytes=MONITOR_MIN_BYTES,
+                          cooldown_success=COOLDOWN_SUCCESS, cooldown_fail=COOLDOWN_FAIL)
 
 
 def close_socket(sock):

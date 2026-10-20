@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import collections
 import codecs
 import json
 import queue
@@ -19,9 +20,11 @@ from PySide6.QtGui import QColor, QCursor, QFont, QKeySequence, QShortcut, QText
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QInputDialog, QLabel, QLineEdit,
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QSystemTrayIcon,
-    QTextEdit, QWidget)
+    QTextEdit, QVBoxLayout, QWidget)
 
 from serial_common import AlertMonitor, AnsiLogParser, parse_macro_line
+from serial_baud_scan import (COOLDOWN_FAIL, COOLDOWN_SUCCESS, DEFAULT_BAUDS, MONITOR_MIN_BYTES,
+                              MONITOR_THRESHOLD, MONITOR_WINDOW, SCAN_SECONDS, readability, scan_open_device)
 from serial_gui_qt_prototype import Preview, icon, parse_hex, row, set_role
 from serial_service_client import Client as ServiceClient, RemoteError as ServiceError
 
@@ -32,7 +35,8 @@ DEFAULT_OPTIONS = dict(timestamps=True, time_format=TIME_FORMATS[1], wrap=False,
     case=False, whole=False, tags=[], paused=False, save_policy='手动保存',
     log_timestamp=True, log_format=TIME_FORMATS[1], log_append=False,
     log_encoding='UTF-8', log_newline='LF', log_auto=False,
-    log_directory=str(Path(__file__).with_name('logs')))
+    log_directory=str(Path(__file__).with_name('logs')),
+    autobaud_monitor=True, autobaud_probe=False)
 
 
 def timestamp(stamp, fmt):
@@ -45,10 +49,17 @@ class SerialWorker(threading.Thread):
     def __init__(self, options, events, factory=serial.serial_for_url):
         super().__init__(daemon=True, name=f"serial:{options['port']}")
         self.options = dict(options)
+        # `options` is the session dict; per-session switches live in options['options'].
+        session_options = options.get('options')
+        self.session_options = session_options if isinstance(session_options, dict) else {}
         self.events = events
         self.factory = factory
         self.commands = queue.Queue(maxsize=256)
+        self.controls = queue.Queue(maxsize=16)
         self.stopped = threading.Event()
+        self._scan_request = None
+        self._suspect_window = collections.deque()
+        self._cooldown_until = 0.0
 
     def emit(self, kind, payload=None):
         # Backpressure bounds memory without silently dropping received bytes.
@@ -57,7 +68,8 @@ class SerialWorker(threading.Thread):
                 self.events.put((self, kind, payload, datetime.now()), timeout=.05)
                 return
             except queue.Full:
-                if self.stopped.is_set() and kind not in ('closed', 'error', 'sent', 'rx'):
+                if self.stopped.is_set() and kind not in ('closed', 'error', 'sent', 'rx',
+                                                          'baud_notice'):
                     return
 
     def run(self):
@@ -69,6 +81,8 @@ class SerialWorker(threading.Thread):
                 rtscts=o.get('flow') == 'RTS/CTS', timeout=.02, write_timeout=.3)
             self.emit('opened')
             while not self.stopped.is_set():
+                if self._drain_controls(port):
+                    continue
                 try:
                     token, payload, shown = self.commands.get_nowait()
                 except queue.Empty:
@@ -85,6 +99,10 @@ class SerialWorker(threading.Thread):
                 data = port.read(min(port.in_waiting or 1, 8192))
                 if data:
                     self.emit('rx', data)
+                    if self.session_options.get('autobaud_monitor'):
+                        self._feed_suspect(data, time.monotonic())
+                if self._scan_request:
+                    self._run_scan(port)
         except Exception as exc:
             self.emit('error', str(exc))
         finally:
@@ -94,6 +112,74 @@ class SerialWorker(threading.Thread):
                 except Exception as exc:
                     self.emit('error', str(exc))
             self.emit('closed')
+
+    def _drain_controls(self, port):
+        ran = False
+        while True:
+            try:
+                action = self.controls.get_nowait()
+            except queue.Empty:
+                return ran
+            if action.get('action') == 'scan':
+                # A manual scan replaces any pending automatic one and runs now;
+                # the scan itself owns the port while RX/TX pause in this thread.
+                self._run_scan(port, dict(mode=action.get('mode') or 'passive', manual=True))
+                ran = True
+
+    def _feed_suspect(self, data, now):
+        window = self._suspect_window
+        window.append((now, data))
+        horizon = now - MONITOR_WINDOW
+        while window and window[0][0] < horizon:
+            window.popleft()
+        if now < self._cooldown_until:
+            return
+        if sum(len(chunk) for _, chunk in window) < MONITOR_MIN_BYTES:
+            return
+        combined = b''.join(chunk for _, chunk in window)
+        if readability(combined) <= MONITOR_THRESHOLD:
+            window.clear()
+            self._scan_request = dict(
+                mode='active' if self.session_options.get('autobaud_probe') else 'passive',
+                manual=False)
+
+    def _run_scan(self, port, request=None):
+        request = request or self._scan_request or {}
+        self._scan_request = None
+        active = request.get('mode') == 'active'
+        o = self.options
+        start_baud = int(o['baud'])
+        candidates = [start_baud] + [b for b in DEFAULT_BAUDS if b != start_baud]
+        self.emit('baud_notice', ('主动扫描波特率中（发送回车探测；候选：%s），收发暂停' if active
+                                  else '被动扫描波特率中（不发送数据；候选：%s），收发暂停')
+                  % '、'.join(str(b) for b in candidates))
+        try:
+            winner, _scores, reason = scan_open_device(
+                port, candidates, SCAN_SECONDS, 1, 4 if active else 12,
+                probe=b'\r' if active else None)
+        except (OSError, serial.SerialException, ValueError) as exc:
+            self.emit('baud_notice', f'波特率扫描出错：{exc}；已保持 {start_baud}')
+            self._cooldown_until = time.monotonic() + COOLDOWN_FAIL
+            return
+        now = time.monotonic()
+        if winner is not None and winner != start_baud:
+            try:
+                port.apply_settings({'baudrate': winner})
+            except (OSError, serial.SerialException, ValueError) as exc:
+                self.emit('baud_notice', f'切换波特率 {winner} 失败：{exc}；已保持 {start_baud}')
+                self._cooldown_until = now + COOLDOWN_FAIL
+                return
+            o['baud'] = str(winner)
+            self._cooldown_until = now + COOLDOWN_SUCCESS
+            self.emit('baud_changed', (start_baud, winner))
+        elif winner == start_baud:
+            self._cooldown_until = now + COOLDOWN_SUCCESS
+            self.emit('baud_notice', f'在线检测完成：当前波特率 {start_baud} 有效')
+        else:
+            hint = ('设备可读输出不足：让设备多打印，或改用主动探测（发送回车）。'
+                    if not active else '设备没有应答回车探测；请确认固件支持，或改用被动监听。')
+            self._cooldown_until = now + COOLDOWN_FAIL
+            self.emit('baud_notice', f'未能确定波特率（{reason}）：已保持 {start_baud}。{hint}')
 
 
 class ServiceWorker(threading.Thread):
@@ -112,6 +198,7 @@ class ServiceWorker(threading.Thread):
         self.events = events
         self.client_factory = client_factory
         self.commands = queue.Queue(maxsize=256)
+        self.controls = queue.Queue(maxsize=16)
         self.stopped = threading.Event()
         self.takeover = threading.Event()
         self.status = {}
@@ -123,7 +210,7 @@ class ServiceWorker(threading.Thread):
                 return
             except queue.Full:
                 if self.stopped.is_set() and kind not in ('closed', 'error', 'sent', 'rx',
-                                                          'peer_tx', 'service_state'):
+                                                          'peer_tx', 'service_state', 'baud_notice'):
                     return
 
     def run(self):
@@ -147,6 +234,7 @@ class ServiceWorker(threading.Thread):
                         client.call('agent.takeover')
                     except Exception as exc:
                         self.emit('error', f'接管失败：{exc}')
+                self.drain_controls(client)
                 self.drain_commands(client, pending)
                 self.pump_events(client, pending, tx_bytes)
                 self.stopped.wait(.01)
@@ -159,6 +247,18 @@ class ServiceWorker(threading.Thread):
                 except Exception:
                     pass
             self.emit('closed')
+
+    def drain_controls(self, client):
+        while True:
+            try:
+                action = self.controls.get_nowait()
+            except queue.Empty:
+                return
+            if action.get('action') == 'scan':
+                try:
+                    client.call('serial.autobaud', mode=action.get('mode') or 'passive')
+                except Exception as exc:
+                    self.emit('baud_notice', f'在线检测无法开始：{exc}')
 
     def drain_commands(self, client, pending):
         while True:
@@ -201,9 +301,67 @@ class ServiceWorker(threading.Thread):
                     # 'queued'/'writing' keep waiting for a terminal job event.
                 elif state == 'written' and job_id in tx_bytes:
                     self.emit('peer_tx', tx_bytes.pop(job_id))
+            elif kind == 'baud_scan':
+                state = event.get('state')
+                if state == 'started':
+                    text = ('在线波特率扫描中（%s；候选：%s），收发暂停'
+                            % ('主动' if event.get('mode') == 'active' else '被动',
+                               '、'.join(str(b) for b in event.get('candidates', []))))
+                elif state == 'unchanged':
+                    text = f'在线检测完成：波特率 {event.get("baud")} 有效'
+                elif state == 'failed':
+                    text = f'在线检测失败（{event.get("reason")}）：已保持原波特率'
+                else:
+                    text = f'波特率扫描：{state}'
+                self.emit('baud_notice', text)
+            elif kind == 'baud_changed':
+                self.emit('baud_changed', (event.get('from'), event.get('to')))
             elif kind == 'state':
                 self.status = event.get('state') or {}
                 self.emit('service_state', self.status)
+
+
+class ServiceStopWorker(threading.Thread):
+    """One-shot helper that stops a shared bridge process and releases its port.
+
+    Works whether or not the session currently holds a live ServiceWorker:
+    it opens a short-lived control connection, takes the lease back from an
+    agent if needed, then asks the service to stop itself (which closes the
+    device before the process exits).
+    """
+
+    def __init__(self, service, events, client_factory=ServiceClient):
+        super().__init__(daemon=True, name=f"service-stop:{service['host']}:{service['control']}")
+        self.service = dict(service)
+        self.events = events
+        self.client_factory = client_factory
+
+    def emit(self, kind, payload=None):
+        self.events.put((self, kind, payload, datetime.now()))
+
+    def run(self):
+        c = self.service
+        target = f"{c['host']}:{int(c['control'])}"
+        client = None
+        try:
+            client = self.client_factory(c['host'], int(c['control']))
+            status = client.call('status')
+            instance = status.get('instance')
+            if not instance:
+                raise ServiceError('identity', '服务未提供实例标识，拒绝停止')
+            if status.get('owner') == 'agent':
+                self.emit('baud_notice', 'Agent 正持有设备，先收回租约再停止桥…')
+                client.call('agent.takeover')
+            client.call('service.stop', instance=instance)
+            self.emit('service_stop_result', (True, f'共享串口桥已停止，串口已释放（{target}）'))
+        except Exception as exc:
+            self.emit('service_stop_result', (False, f'停止共享串口桥失败（{target}）：{exc}'))
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
 
 def usb_serial_rank(port):
@@ -318,11 +476,39 @@ class Workbench(Preview):
             b = QPushButton(title)
             b.clicked.connect(callback)
             layout.insertWidget(layout.count()-1, b)
+        self.autobaud_monitor = QCheckBox('乱码自动重扫波特率')
+        self.autobaud_monitor.setToolTip('连接期间收到持续乱码（多为设备中途换了波特率）时，自动用候选波特率重扫并切换；被动方式不发送任何数据')
+        self.autobaud_probe = QCheckBox('自动重扫允许主动探测')
+        self.autobaud_probe.setToolTip('允许自动重扫向设备发送回车探测（适合中途换波特率且平时安静的设备）；默认关闭')
+        self.baud_scan_button = QPushButton('在线检测波特率')
+        self.baud_scan_button.clicked.connect(self.scan_baud_online)
+        self.baud_scan_button.setToolTip('保持当前连接，扫描候选波特率并在确认后切换')
+        layout.insertWidget(layout.count()-1, row(self.autobaud_monitor, None, self.baud_scan_button))
+        layout.insertWidget(layout.count()-1, self.autobaud_probe)
+        # All shared-bridge controls live in one labelled group at the end.
+        layout.insertSpacing(layout.count()-1, 8)
+        heading = QLabel('共享串口桥')
+        heading.setProperty('role', 'heading')
+        layout.insertWidget(layout.count()-1, heading)
+        self.service_connect = QPushButton('连接共享服务…')
+        self.service_connect.clicked.connect(self.connect_service_dialog)
+        self.service_connect.setToolTip('接入本机共享串口桥，作为人工客户端查看与发送')
         self.service_takeover = QPushButton('终止 Agent 并接管')
         self.service_takeover.clicked.connect(self.request_takeover)
         self.service_takeover.setVisible(False)
         self.service_takeover.setToolTip('收回共享服务的控制权，取消 Agent 排队任务后恢复人工控制')
-        layout.insertWidget(layout.count()-1, self.service_takeover)
+        self.service_stop = QPushButton('停止桥并释放端口')
+        self.service_stop.clicked.connect(self.stop_service_bridge)
+        self.service_stop.setVisible(False)
+        self.service_stop.setToolTip('停止共享串口桥进程并释放串口；Agent 与其他客户端的连接会一并断开')
+        bridge_group = QWidget()
+        bridge_layout = QVBoxLayout(bridge_group)
+        bridge_layout.setContentsMargins(0, 0, 0, 0)
+        bridge_layout.setSpacing(4)
+        for b in (self.service_connect, self.service_takeover, self.service_stop):
+            bridge_layout.addWidget(b)
+        layout.insertWidget(layout.count()-1, bridge_group)
+        menu.addAction('在线检测波特率…', self.scan_baud_online)
         self.search.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.search.customContextMenuRequested.connect(self.search_menu)
         QShortcut(QKeySequence('F3'), self, activated=self.next_match)
@@ -365,6 +551,8 @@ class Workbench(Preview):
         for key in ('display_mode', 'rx_encoding', 'encoding', 'ending', 'save_policy'):
             o[key] = getattr(self, key).currentText()
         o.update(log_level=self.log_level.currentIndex(), tags=sorted(self.tag_filters), paused=self.paused)
+        o['autobaud_monitor'] = self.autobaud_monitor.isChecked()
+        o['autobaud_probe'] = self.autobaud_probe.isChecked()
 
     def switch(self, index):
         if not self.ready:
@@ -384,6 +572,11 @@ class Workbench(Preview):
             w = getattr(self, key)
             w.blockSignals(True)
             w.setCurrentText(o[key])
+            w.blockSignals(False)
+        for key in ('autobaud_monitor', 'autobaud_probe'):
+            w = getattr(self, key)
+            w.blockSignals(True)
+            w.setChecked(o.get(key, key == 'autobaud_monitor'))
             w.blockSignals(False)
         self.log_level.blockSignals(True)
         self.log_level.setCurrentIndex(o['log_level'])
@@ -586,6 +779,48 @@ class Workbench(Preview):
         if isinstance(worker, ServiceWorker):
             worker.takeover.set()
 
+    def stop_service_bridge(self):
+        s = self.sessions[self.active]
+        if not s.get('service'):
+            self.report_error('当前会话未接入共享服务，无法停止桥')
+            return
+        if s.get('service_stop_pending'):
+            return
+        service = s['service']
+        device = service.get('device') or '串口'
+        box = QMessageBox(QMessageBox.Icon.Warning, '停止共享串口桥',
+                          f'停止 {service["host"]}:{service["control"]} 上的串口桥并释放 {device}？\n\n'
+                          '桥进程将退出，Agent 与其他客户端的连接会断开；'
+                          '之后其他工具可以直接打开该串口。', parent=self)
+        stop = box.addButton('停止桥并释放端口', QMessageBox.ButtonRole.AcceptRole)
+        cancel = box.addButton('取消', QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if box.clickedButton() is not stop:
+            return
+        s['service_stop_pending'] = True
+        self.append(self.active, 'SYS', f'正在停止共享串口桥（{service["host"]}:{service["control"]}）…')
+        stopper = ServiceStopWorker(s['service'], self.events, self.service_client_factory)
+        self.workers[stopper] = s
+        stopper.start()
+        self.update_state()
+
+    def scan_baud_online(self):
+        s = self.sessions[self.active]
+        worker = s.get('worker')
+        if worker is None or s['state'] != 'connected':
+            self.report_error('请先连接串口，再使用在线波特率检测')
+            return
+        items = ['被动监听（不发送数据，设备需持续输出）', '主动探测（发送回车，适合安静设备）']
+        mode, ok = QInputDialog.getItem(self, '在线检测波特率', '检测方式（串口保持连接）：',
+                                        items, 1 if s['options']['autobaud_probe'] else 0, False)
+        if not ok:
+            return
+        mode = 'active' if mode.startswith('主动') else 'passive'
+        if mode == 'active':
+            self.append(self.active, 'WARN', '主动探测会向设备发送回车字节')
+        worker.controls.put({'action': 'scan', 'mode': mode})
+
     def connect_session(self, index):
         self.capture_session()
         s = self.sessions[index]
@@ -632,7 +867,10 @@ class Workbench(Preview):
             except queue.Empty:
                 break
             s = self.workers.get(w)
-            if s is None or not any(s is item for item in self.sessions):
+            if s is None:
+                continue
+            if not any(s is item for item in self.sessions):
+                self.workers.pop(w, None)
                 continue
             index = next(i for i, item in enumerate(self.sessions) if item is s)
             if kind == 'opened' and not w.stopped.is_set():
@@ -661,6 +899,28 @@ class Workbench(Preview):
                 s['service_status'] = payload
                 if self.sessions[self.active] is s:
                     self.update_state()
+            elif kind == 'baud_notice':
+                self.append(index, 'SYS', payload)
+            elif kind == 'service_stop_result':
+                ok, message = payload
+                s.pop('service_stop_pending', None)
+                self.workers.pop(w, None)
+                if ok:
+                    self.append(index, 'SYS', message)
+                    # The bridge is gone; retire any live client worker now
+                    # instead of leaving a zombie "connected" session behind.
+                    if s.get('worker'):
+                        self.disconnect_session(s)
+                else:
+                    self.append(index, 'ERROR', message)
+                    if self.sessions[self.active] is s:
+                        self._status_error = (message, time.monotonic() + 8)
+            elif kind == 'baud_changed':
+                old, new = payload
+                s['baud'] = str(new)
+                if s.get('service'):
+                    s['service']['baud'] = str(new)
+                self.append(index, 'SYS', f'波特率已从 {old} 切换为 {new}')
             elif kind == 'send_failed':
                 token, message = payload
                 self.append(index, 'WARN', message)
@@ -904,8 +1164,11 @@ class Workbench(Preview):
             owner = {'human': '人工', 'agent': 'Agent', 'revoking': '正在接管'}.get(service.get('owner'), '未知')
             device = '设备已连接' if service.get('connected') else '设备已释放'
             self.info_values['设备运行状态'].setText(f'服务 {s["service"]["host"]}:{s["service"]["control"]} · {device} · 控制权：{owner}')
-        self.service_takeover.setVisible(bool(s.get('service') and s.get('worker')))
+        is_service = bool(s.get('service'))
+        self.service_takeover.setVisible(is_service and bool(s.get('worker')))
         self.service_takeover.setEnabled(service.get('owner') == 'agent' and s['state'] == 'connected')
+        self.service_stop.setVisible(is_service)
+        self.service_stop.setEnabled(is_service and not s.get('service_stop_pending'))
         status = '已暂停显示' if self.paused else '就绪'
         if s.get('log_file'):
             status += ' · 持续记录中'

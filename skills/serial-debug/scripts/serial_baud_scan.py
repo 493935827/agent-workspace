@@ -14,6 +14,15 @@ import serial
 
 DEFAULT_BAUDS = (115200, 57600, 38400, 19200, 9600, 230400, 460800, 921600)
 
+# Live drift monitor: readable-text ratio below the threshold over a sliding
+# window with at least MIN bytes marks the session as garbled (wrong baud).
+MONITOR_THRESHOLD = 0.55
+MONITOR_WINDOW = 3.0
+MONITOR_MIN_BYTES = 48
+SCAN_SECONDS = 0.5          # per-candidate listen time for live re-scans
+COOLDOWN_SUCCESS = 5.0      # after a switch/confirmation before re-checking
+COOLDOWN_FAIL = 20.0        # after an inconclusive scan before retrying
+
 
 @dataclass(frozen=True)
 class SampleScore:
