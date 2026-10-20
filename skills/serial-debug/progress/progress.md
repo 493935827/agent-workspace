@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-20 10:47（Asia/Shanghai）
+最后更新：2026-10-20 10:58（Asia/Shanghai）
 
 ## 当前概况
 
@@ -14,12 +14,13 @@
 - 2026-10-20 GUI 接入在线波特率检测（用户要求不开 CLI）：直连会话内置乱码监视（默认开，会话级「乱码自动重扫波特率」/「自动重扫允许主动探测」开关随会话持久化），中途换波特率自动切换并以 `SYS` 行提示；「日志设置」页与「更多」菜单新增「在线检测波特率」（被动/主动选择），直连走工作线程内 `scan_open_device`（扫描期间收发自然暂停），服务会话经 `serial.autobaud` + `baud_scan`/`baud_changed` 事件渲染；切换后同步会话波特率字段。注意 `SerialWorker` 的 `options` 是整个会话字典，会话级开关在 `options['options']`。全套 72 项测试通过（+4，tests/test_ui_autobaud.py；与连接修复的 2 项回归合并验证）。
 - 2026-10-20 GUI 新增「共享串口桥」分组与一键停止：设置页按钮重排为 会话操作 → 波特率检测 → 「共享串口桥」分组（连接共享服务… / 终止 Agent 并接管 / 新按钮「停止桥并释放端口」，后两个按钮按会话类型显隐）；一键停止走 `ServiceStopWorker` 短连接：`status` 取 instance → 必要时 `agent.takeover` 收回租约 → `service.stop`，桥进程退出即释放串口，成功后自动退役本会话残留 worker（避免假在线）；未连接的服务会话也能停仍在运行的桥，失败（含服务不可达）写 ERROR 并置状态栏。新增 `tests/test_ui_service_controls.py` 5 项（分组显隐/确认释放/收回租约/取消不动作/不可达报错），全套 77 项测试通过。注意：`serial_gui_qt.py` 的本功能改动被并行会话的 `67255ca`（在线波特率检测）顺带带入且已推送，提交信息未覆盖本功能；本条目对应的补提交只含测试与文档。
 - 2026-10-20 本对话收尾：服务端在线检测（`af63f9c`）、并行会话连接修复（`c6c3afa`，按用户切分决定代为提交）、GUI 接入（`67255ca`）均已推送；实机漂移验收待板子接回，交接见归档行。
-- 下一步：用 RRAM_TEST 输出板补设备级往返、被动波特率检测与「在线检测（中途换波特率）」人工验收（先确认是否停板上的测试）；style token 改动同步上游 serial-gui 仓库。
+- 下一步：推送本地待推提交（`53f62eb` + 本 handoff docs 提交；push 异常时先 `git ls-remote` 探测、必要时 `-c credential.helper=` 重试）；用 RRAM_TEST 输出板补设备级往返、被动波特率检测、「在线检测（中途换波特率）」与「停止桥并释放端口」实机人工验收（先确认是否停板上的测试）；style token 改动同步上游 serial-gui 仓库。
 
 ## 对话归档
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-20 / GUI 共享串口桥分组与一键停止 | 设置页新增「共享串口桥」分组（连接 / 接管 / 新按钮「停止桥并释放端口」，按会话类型显隐）；一键停止走 `ServiceStopWorker`：status 取 instance → 必要时收回 Agent 租约 → `service.stop`，桥退出即释放串口并自动退役残留 worker；新增 5 项测试，全套 77 项通过；源码改动已随 `67255ca` 入库（并行会话顺带提交），补提交 `4695a90` 已推送；实机验收待板子 | [GUI bridge stop group](handoff-20261020-105711-gui-bridge-stop-group.md) |
 | 2026-10-20 / 共享连接发数据失效修复 | 定位根因：服务端给 call 连接设 30 秒空闲超时，GUI 停留超时后呼叫通道被静默关闭而订阅通道存活，会话假在线、每次发送仅一条 WARN；修复为服务端去空闲超时 + 两个客户端 `Client.call` 通道自愈（不自动重发）；31 秒复现修复前红/修复后绿；2 项回归测试；72 项测试通过；修复随 `c6c3afa` 推送 | [Shared-connection send fix](handoff-20261020-104500-shared-connection-send-fix.md) |
 | 2026-10-20 / GUI 在线波特率检测 + 连接中自动感知 | 复诊菜单 5「用不了」= 板子未接入；服务端乱码监视+自动重扫（`af63f9c`）；GUI 直连/服务会话接入检测按钮与自动感知（`67255ca`）；按用户切分代为提交并行会话连接修复（`c6c3afa`）；77 项测试通过；实机漂移验收待板子 | [GUI online baud detect](handoff-20261020-104200-gui-online-baud-detect.md) |
 | 2026-10-14 / 离线打包（Qt 依赖入库） | 打包 serial-debug 离线 7z 到 DTS（Essentials wheel 方案，78.3MB，cp310-abi3 即 3.10+ 通用）；py3.10 独立 venv 离线安装与 51 项测试复验通过；未改源码 | [Offline package py310](handoff-20261014-145200-offline-package-py310.md) |
