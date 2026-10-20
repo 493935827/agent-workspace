@@ -1,13 +1,13 @@
 # 项目进度
 
-最后更新：2026-10-20 15:33（Asia/Shanghai）
+最后更新：2026-10-20 15:40（Asia/Shanghai）
 
 ## 当前概况
 
 - 目标 / 当前阶段：serial-debug skill 全链路（服务端 + Qt 工作台 + Windows 控制器 + bridge/客户端）持续迭代；Issue #1 Phase 1 已完成，进入实机验收与打磨期。
 - 已完成并验证：Windows 控制器全工作流（含 uv shim 场景）；Qt 工作台 Fluent 2 深色风格与可访问性改造；GUI 日志降噪（按键字节默认静默 + 「显示按键字节」开关，`2ed0ad6`/`cb4af8d`）；菜单 5「自动检测串口并连接」重做并修复配置编码损坏根因、主动波特率检测（`e6989e5`）；GUI「自动检测串口」按钮重做（唯一已接入 USB 口直连、多候选预选列表、无 USB 才等待）；COM6 实机全链路通过；全套 51 项测试通过（offscreen 约 62 秒）；离线包交付：`D:\trash\Work\Innostar-ic\DTS\serial-debug-offline-py310-win_amd64.7z`（78.3MB，PySide6-Essentials+pyserial wheel 方案，py3.10 独立 venv 离线安装复验 + 51 项测试通过）。
 - 已实现未验证：历史遗留的设备级 RX 应答往返（send 后确认设备回包）——现有 COM6 板持续输出 RRAM_TEST 日志，具备补验条件。
-- 阻塞：无。
+- 阻塞：推送被网络阻断（github.com:443 连接重置/超时，两个会话共 5 次探测失败，`-c credential.helper=` 已排除凭据因素）；本地功能与验证全部完成。
 - 2026-10-19 复诊「自动检测并连接用不了」：代码未坏（20 项检测相关单测 + loop:// 桥/send 链路冒烟通过，`5519739` 后未再改动），根因是板子未接入——当前机器仅剩 COM4/COM5 两个蓝牙虚拟串口（BTHENUM，无 USB VID/PID，按设计被排除），上次验收用的 COM6 已不在系统；插回 USB 串口板后菜单 5 即恢复。本地配置仍为 COM6/115200，完好。
 - 2026-10-19 新增「连接中波特率检测」：服务端乱码监视 + 自动重扫切换（默认被动，`AutoBaudProbe`/`--autobaud-probe` 开启主动探测）；控制动作 `serial.autobaud`/`autobaud.status`/`serial.autobaud.configure`，事件 `baud_scan`/`baud_changed`，终端注入「波特率已切换」提示；桥新增 `--autobaud*` 启动参数与 `autobaud` 在线检测子命令（exit 0/2/3/4/5/6）；菜单 10 增加方式 3「在线检测」并支持把新波特率写回本地配置；评分核心抽到 `scripts/serial_baud_scan.py` 供离线/在线共用（离线 CLI 行为不变）。agent 租约期间自动扫描暂停，手动触发不受影响。全套 66 项测试通过（+15）；loop:// 在线检测与 ps1 启动参数冒烟通过；实机波特率漂移验收待板子接回。
 - 2026-10-20 修复「共享连接有时要断开再连接才能发数据」：根因是服务端 `_connection` 给控制（call）连接设了 30 秒 socket 超时，而 GUI 只在用户发送时才用这条连接——空闲超 30 秒服务端就静默关闭呼叫通道，订阅通道（RX 日志）还活着，会话仍显示已连接，之后每次发送都失败（仅一条 WARN），只有断开重连才恢复。修复两层：服务端 call 连接不再设空闲超时（`CONTROL_READ_TIMEOUT=None`，订阅/raw 仍各有 1 秒超时）；`serial_client.py`/`serial_service_client.py` 的 `Client.call` 遇传输层死亡自动重建呼叫通道并原样抛出本次错误（本次结果未知不自动重发，符合既有约定），ID 不匹配（通道错位）时同样重建。31 秒空闲复现脚本修复前红（设备收不到字节、会话假在线）修复后绿；新增 2 项回归测试（call 通道传输死亡后自愈：服务级 + GUI 端到端）；全套 72 项测试通过。修复已随 `c6c3afa` 提交并推送（由并行会话按用户切分决定代为提交），归档见 [Shared-connection send fix](handoff-20261020-104500-shared-connection-send-fix.md)。
@@ -17,7 +17,7 @@
 - 2026-10-20 新增全工作流测试方案 `docs/test-plan.md`：L0–L5 分层（单元/loop:// 集成/GUI offscreen/实机清单/环境矩阵/文档比对）+ 12 组用例矩阵（A–L，标注优先级与自动化现状）+ 可打勾实机验收清单（L3-1…L3-7，覆盖四项挂起验收）；77 项基线复跑全绿（本机 offscreen 实测 306 秒）。
 - 2026-10-20 GUI 新增「打开并识别日志文件」：文件菜单 Ctrl+O、「更多」菜单与设置页三个入口，把保存过的日志读回当前会话（`[LOG]` 标签、ANSI 颜色照常解析）。识别核心在 `serial_gui_qt.py` 模块层（`match_log_stamp`/`decode_log_bytes`/`parse_log_text`）：行首时间戳支持 `[日期 时间]`、`日期 时间`、`[时间]`、`时间` 四类形态（`.`/`,` 毫秒，`/` 与 ISO `T` 均可，仅时间按文件日期补齐，非法候选回退为正文），编码按 UTF-8 → UTF-16(BOM) → GBK 探测（UTF-16 必须 BOM，否则 Python 会按本机字节序硬解偶数长度 GBK 数据——实测踩坑）；有时间戳文件的无时间戳行并入前条（还原持续日志折行结构），纯文本逐行成条按文件 mtime 标注。`RECORD_LIMIT`（5000，与 LogView maximumBlockCount 一致）从字面量提为常量；导入超限保留最近部分并在 `SYS` 摘要说明（行数/时间戳统计/编码/截断提示）；导入不写入进行中的持续日志文件、不计收发统计、不动提醒监视；超大文件只解析末尾 8 MB（换行边界起读）。新增 `tests/test_ui_open_log.py` 17 项；全套 101 项测试通过（84+17，offscreen 实测约 530 秒；首跑 3 例桥/服务定时用例整机高负载下超时，隔离复跑与全套复跑均绿）。注意：本条目 offscreen 全套验证与并行会话的审查快修（`5bd9670`）在同一工作区先后进行，基线计数以本条为准。
 - 2026-10-20 全代码审查 + 快修包（`5bd9670`）：4 路并行整体审查核心代码（scripts/ + windows/，77 项基线复跑全绿），4 项 P1（GUI 服务会话桥死亡假在线、接管失败毒化健康会话、服务端 takeover×baud_scan 竞态、README 承诺的 `-Passive` 旗标不存在）、10 项 P2、16 项 P3，已核实并留档于对话。本次快修 8 文件：服务端 `serial.autobaud` 请求改锁内赋值 + 设备丢失/显式释放清挂起扫描（`requested` 卡死曾致 CLI 假成功 exit 0 且后续扫描 busy）；`run_autobaud` 控制连接死亡→exit 4、扫描未启动超时→exit 5（原先误报 2/裸 traceback）；被动离线检测开串口保持 DTR/RTS 为低（不再复位接 DTR 的板子）+ `parse_probe` 非 ASCII latin-1 往返；ps1 补 `-Passive` 透传、损坏 bridge.pid 容错、慢启动不误删 pid（不再产生孤儿桥）；windows/README 被动检测说明补充。新增 7 项回归测试（service/bridge 退出码/detector 契约），定向 34 项绿；全套 100 项绿 + 1 项无关负载抖动（test_ui_log_noise 单跑 3/3 绿，FakeWorker 路径与本次改动无调用关系）。提交 `5bd9670` 已本地完成，推送被网络阻断（github.com:443 两次 21s 超时，`-c credential.helper=` 复验排除凭据因素），待网络恢复推送。审查发现中未修的 P1（GUI 假在线/接管失败/takeover×scan 竞态）与 PS 5.1 健壮性（`2>&1`×EAP=Stop、ArgumentList 空格）建议开 issue 跟进。
-- 下一步：推送本地待推提交（`53f62eb` + `5bd9670` + 本 handoff docs 提交；push 异常时先 `git ls-remote` 探测、必要时 `-c credential.helper=` 重试，当前网络不可达）；用 RRAM_TEST 输出板按 `docs/test-plan.md` 第 6 节清单补设备级往返、被动波特率检测、「在线检测（中途换波特率）」与「停止桥并释放端口」实机人工验收（先确认是否停板上的测试）；style token 改动同步上游 serial-gui 仓库。
+- 下一步：网络恢复后 `git push origin master` 推送 4 个待推提交（`5bd9670` 审查快修 + `c527d4e` 日志打开功能 + `4a0056f` test-plan/进度 + `8b4ca9e` handoff 归档）；为审查未修 P1（GUI 桥死亡假在线 / 接管失败毒化健康会话 / 服务端 takeover×扫描竞态）与 PS 5.1 健壮性（stderr 重定向、ArgumentList 空格）开 issue（完整 file:line 清单见最新 handoff）；用 RRAM_TEST 输出板按 `docs/test-plan.md` 第 6 节清单补设备级往返、被动波特率检测、「在线检测（中途换波特率）」与「停止桥并释放端口」实机人工验收（先确认是否停板上的测试）；style token 改动同步上游 serial-gui 仓库。
 
 ## 对话归档
 
