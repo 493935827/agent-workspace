@@ -100,9 +100,14 @@ Qt 工作台（`serial_gui.cmd`）无需命令行：直连会话默认开启「�
 .\serial_console.ps1 -Action Status
 .\serial_console.ps1 -Action Connect
 .\serial_console.ps1 -Action Send -Command "help"
+.\serial_console.ps1 -Action Send -Command "help" -Exclusive
 .\serial_console.ps1 -Action Ports
 .\serial_console.ps1 -Action Stop
 ```
+
+`-Action Send` 的退出码：`0` 收到回应；`3` 已发送但回应窗口内没有任何字节——命令可能已送达并执行，空回应不等于设备死亡；`2` 连接中断、结果不确定。
+
+加 `-Exclusive` 走租约路径：先 `agent.acquire` 获取独占凭证，经管理端口（默认 `8889`）带 token 发送，完成后 `agent.release`。独占期间外部 8888 raw 发送与无 token 的控制动作都会被拒（`occupied`，提示中会给出「终止 Agent 并接管」的指引）。一次性租约不发心跳，整轮发送必须放进租约窗口（默认 10s，控制器自动按 `timeout-2` 秒设置 `--wait`）；需要更长的独占任务时，用 `scripts/serial_control.py` 自行 `agent.acquire` / `agent.heartbeat` 续约 / `agent.release`。`written` 状态表示驱动已接收字节，不等于设备已执行命令。
 
 ## 日志和故障排查
 

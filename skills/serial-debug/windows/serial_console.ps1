@@ -3,7 +3,8 @@ param(
     [ValidateSet("Menu", "Start", "Stop", "Release", "Status", "Connect", "Send", "Ports", "AutoDetect", "DetectConnect", "AutoBaud")]
     [string]$Action = "Menu",
     [string]$Command,
-    [switch]$Passive
+    [switch]$Passive,
+    [switch]$Exclusive
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +12,7 @@ $ToolDir = Split-Path -Parent $PSCommandPath
 $DefaultConfigPath = Join-Path $ToolDir "serial_config.psd1"
 $LocalConfigPath = Join-Path $ToolDir "serial_config.local.psd1"
 $BridgePath = Join-Path $ToolDir "..\scripts\shared_serial_bridge.py"
+$ControlScript = Join-Path $ToolDir "..\scripts\serial_control.py"
 $DetectorPath = Join-Path $ToolDir "detect_serial_port.py"
 $BaudDetectorPath = Join-Path $ToolDir "detect_serial_baud.py"
 $RuntimeDir = Join-Path $ToolDir ".runtime"
@@ -432,13 +434,54 @@ function Open-SerialTerminal {
 }
 
 function Send-SerialCommand([string]$Text) {
+    # Returns the bridge send exit code: 0 = got a response, 2 = disconnected,
+    # 3 = sent but nothing came back (NOT "device dead"), 4 = --expect
+    # unmatched (unused here). Callers decide how to surface nonzero codes.
     $Config = Get-SerialConfig
     if ($null -eq (Get-BridgeProcess)) { throw "串口桥已停止，请先启动。" }
-    & $Config.Python $BridgePath send $Text --host $Config.Host --tcp $Config.TcpPort `
+    $Output = & $Config.Python $BridgePath send $Text --host $Config.Host --tcp $Config.TcpPort `
         --encoding $Config.Encoding --line-ending $Config.LineEnding --newline
-    if ($LASTEXITCODE -ne 0) {
-        throw "命令结果不确定，请先检查交互终端或日志，再决定是否重发。"
+    $Code = $LASTEXITCODE
+    foreach ($Line in @($Output)) { Write-Host $Line }
+    if ($Code -eq 3) {
+        # 空回应是"已发送、回应窗口内无字节"（慢启动、首字节被吞都会这样），
+        # 不是发送失败，也不是设备死亡：解释清楚并保留退出码给自动化。
+        Write-Host "已发送但未收到任何回应：命令可能已送达并执行；空回应不等于设备死亡。" -ForegroundColor Yellow
+        Write-Host "如需确认链路：用裸 TCP 连共享地址发送一个回车并等待提示符，或查看交互终端/串口日志。" -ForegroundColor Yellow
     }
+    return $Code
+}
+
+function Send-SerialCommandExclusive([string]$Text) {
+    # 租约感知的发送路径：agent.acquire → serial_control send --token --wait
+    # → agent.release。独占期间外部 8888 raw 发送和其他控制动作都会被拒。
+    $Config = Get-SerialConfig
+    if ($null -eq (Get-BridgeProcess)) { throw "串口桥已停止，请先启动。" }
+    $ControlPort = [int]$(if ($null -ne $Config.ControlPort) { $Config.ControlPort } else { 8889 })
+    # 每次控制调用都用独立短连接：实测控制连接空闲 ~45s 可能被断开。
+    $Acquire = & $Config.Python $ControlScript agent.acquire --host $Config.Host --control $ControlPort
+    if ($LASTEXITCODE -ne 0) {
+        if (($Acquire | Out-String) -match '"code":\s*"occupied"') {
+            throw "设备正被其他 Agent 独占。请先在工作台点「终止 Agent 并接管」，或等其 agent.release 后重试。"
+        }
+        throw "agent.acquire 失败：$Acquire"
+    }
+    $Lease = ($Acquire | ConvertFrom-Json).result
+    # 一次性租约：不发心跳，整轮发送必须放进租约窗口；租约过期服务端会取消排队作业。
+    $Wait = [math]::Max(1.0, [double]$Lease.timeout - 2)
+    $Sent = & $Config.Python $ControlScript send --host $Config.Host --control $ControlPort `
+        --token $Lease.token --data $Text --encoding $Config.Encoding --newline $Config.LineEnding --wait $Wait
+    $SendExit = $LASTEXITCODE
+    $Released = & $Config.Python $ControlScript agent.release --host $Config.Host --control $ControlPort --token $Lease.token
+    if ($LASTEXITCODE -ne 0) {
+        # 过期或被接管都会让 release 失败：提示但不吞掉发送结果。
+        Write-Host "（agent.release 未成功：$Released）" -ForegroundColor Yellow
+    }
+    if ($SendExit -ne 0) {
+        throw "租约内发送失败：$Sent"
+    }
+    $Job = ($Sent | ConvertFrom-Json).result
+    Write-Host "租约内发送完成：state=$($Job.state) written=$($Job.written)/$($Job.size)（写入驱动成功不等于设备已执行）" -ForegroundColor Green
 }
 
 function Show-Menu {
@@ -464,7 +507,13 @@ function Show-Menu {
             switch ($Choice) {
                 "1" { Start-SerialBridge }
                 "2" { Open-SerialTerminal }
-                "3" { $Text = Read-Host "请输入命令"; Send-SerialCommand $Text }
+                "3" {
+                    $Text = Read-Host "请输入命令"
+                    $Code = Send-SerialCommand $Text
+                    if ($Code -notin @(0, 3)) {
+                        Write-Host "错误：命令结果不确定，请先检查交互终端或日志，再决定是否重发。" -ForegroundColor Red
+                    }
+                }
                 "4" { Stop-SerialBridge }
                 "5" { Detect-AndConnectNextSerialPort }
                 "6" { Find-NextSerialPort | Out-Null }
@@ -516,7 +565,14 @@ switch ($Action) {
     "Connect"    { Open-SerialTerminal }
     "Send"       {
         if ([string]::IsNullOrWhiteSpace($Command)) { throw "请通过 -Command 提供命令内容。" }
-        Send-SerialCommand $Command
+        if ($Exclusive) {
+            Send-SerialCommandExclusive $Command
+        }
+        else {
+            $Code = Send-SerialCommand $Command
+            if ($Code -eq 3) { exit 3 }
+            if ($Code -ne 0) { throw "命令结果不确定，请先检查交互终端或日志，再决定是否重发。" }
+        }
     }
     "Ports"      { Show-SerialPorts }
     "AutoDetect" { Find-NextSerialPort | Out-Null }

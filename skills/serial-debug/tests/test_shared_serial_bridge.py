@@ -241,6 +241,8 @@ class SharedSerialBridgeTests(unittest.TestCase):
             idle=0.05,
             max_wait=0.5,
             socket_timeout=0.05,
+            expect=None,
+            expect_timeout=2.0,
         )
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -248,6 +250,110 @@ class SharedSerialBridgeTests(unittest.TestCase):
             result = BRIDGE.run_send(args)
         self.assertEqual(result, 2)
         self.assertIn("连接已经断开", stderr.getvalue())
+
+
+class RunSendResponseContractTests(unittest.TestCase):
+    """An empty response must stay distinguishable from success: the command
+    may already have been delivered while the device answered nothing inside
+    the response window (slow boot chain, swallowed first byte). Exit 3 plus a
+    stderr warning replaces the old silent exit 0, and --expect gives scripted
+    callers a real answer criterion (0 matched, 4 output-but-no-match)."""
+
+    @staticmethod
+    def _args(**overrides):
+        base = dict(data="help", newline=True, line_ending="cr", host="127.0.0.1",
+                    tcp=0, encoding="utf-8", idle=0.05, max_wait=0.5, socket_timeout=0.05,
+                    expect=None, expect_timeout=2.0)
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    @staticmethod
+    def _serve_once(behavior):
+        """One-connection TCP stand-in for the bridge's raw endpoint."""
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        finished = threading.Event()
+
+        def run():
+            conn, _ = listener.accept()
+            try:
+                behavior(conn)
+            finally:
+                conn.close()
+                listener.close()
+                finished.set()
+
+        threading.Thread(target=run, daemon=True).start()
+        return port, finished
+
+    @staticmethod
+    def _run_send(args):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = BRIDGE.run_send(args)
+        return result, stdout.getvalue(), stderr.getvalue()
+
+    @staticmethod
+    def _silent_device(conn):
+        conn.settimeout(1)
+        conn.recv(4096)  # the command bytes arrive; the device stays mute
+        time.sleep(0.3)  # keep the connection open past the idle window
+
+    def test_silent_device_returns_exit_3_with_warning(self):
+        port, finished = self._serve_once(self._silent_device)
+        result, out, err = self._run_send(self._args(tcp=port))
+        self.assertTrue(finished.wait(2))
+        self.assertEqual(3, result)
+        self.assertEqual("", out)
+        self.assertIn("未收到任何回应", err)
+        self.assertIn("不等于设备死亡", err)
+
+    def test_expect_match_returns_exit_0(self):
+        def answering(conn):
+            conn.settimeout(1)
+            conn.recv(4096)
+            conn.sendall(b"\r\nok\r\natom_io>> ")
+
+        port, finished = self._serve_once(answering)
+        result, out, _ = self._run_send(self._args(tcp=port, expect="atom_io>>"))
+        self.assertTrue(finished.wait(2))
+        self.assertEqual(0, result)
+        self.assertIn("atom_io>>", out)
+
+    def test_expect_timeout_with_unrelated_output_returns_exit_4(self):
+        def chatty(conn):
+            conn.settimeout(1)
+            conn.recv(4096)
+            conn.sendall(b"boot log line\r\n")
+            time.sleep(0.5)
+
+        port, finished = self._serve_once(chatty)
+        result, out, err = self._run_send(
+            self._args(tcp=port, expect="atom_io>>", expect_timeout=0.3))
+        self.assertTrue(finished.wait(2))
+        self.assertEqual(4, result)
+        self.assertIn("boot log line", out)
+        self.assertIn("未匹配", err)
+
+    def test_expect_with_nothing_received_returns_exit_3(self):
+        # Expect deadline (0.2s) fires before the silent server closes (0.3s):
+        # a live bridge that sends nothing is exit 3, not the disconnect code.
+        port, finished = self._serve_once(self._silent_device)
+        result, out, err = self._run_send(
+            self._args(tcp=port, expect="atom_io>>", expect_timeout=0.2))
+        self.assertTrue(finished.wait(2))
+        self.assertEqual(3, result)
+        self.assertEqual("", out)
+        self.assertIn("未收到任何回应", err)
+
+    def test_parser_defaults_for_expect_flags(self):
+        with_expect = BRIDGE.build_parser().parse_args(["send", "hi", "--expect", "atom_io>>"])
+        self.assertEqual("atom_io>>", with_expect.expect)
+        self.assertEqual(10.0, with_expect.expect_timeout)
+        without = BRIDGE.build_parser().parse_args(["send", "hi"])
+        self.assertIsNone(without.expect)
 
 
 class RunAutoBaudExitCodeTests(unittest.TestCase):

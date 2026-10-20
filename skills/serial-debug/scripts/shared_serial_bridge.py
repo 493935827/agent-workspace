@@ -2,6 +2,7 @@
 """Share one serial port between an interactive terminal and command senders."""
 
 import argparse
+import codecs
 import os
 import select
 import socket
@@ -74,6 +75,10 @@ def run_bridge(args):
         service.close()
 
 
+EMPTY_RESPONSE_HINT = ("[串口桥] 已发送但未收到任何回应；命令可能已送达，空回应不等于设备死亡。"
+                       "如需确认链路，可向共享端口发送一个裸回车并等待提示符。\n")
+
+
 def receive_until_idle(sock, idle_seconds, max_seconds):
     output = bytearray()
     disconnected = False
@@ -94,6 +99,43 @@ def receive_until_idle(sock, idle_seconds, max_seconds):
     return bytes(output), disconnected
 
 
+def receive_until_match(sock, pattern, max_seconds, encoding):
+    """Read until the decoded stream contains pattern (substring), or deadline.
+
+    Unlike receive_until_idle, a quiet gap does not end the read: devices may
+    pause between the echo and the answer, so only the pattern, the deadline,
+    or a disconnect stops it. Returns (text, matched, disconnected).
+    """
+    decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+    parts = []
+    # Keep a tail that could hold a pattern split across chunk boundaries.
+    tail = ""
+    keep = max(len(pattern) - 1, 1)
+    matched = False
+    disconnected = False
+    deadline = time.monotonic() + max_seconds
+    while time.monotonic() < deadline:
+        try:
+            chunk = sock.recv(4096)
+        except socket.timeout:
+            continue
+        if not chunk:
+            disconnected = True
+            break
+        window = tail + decoder.decode(chunk)
+        if pattern in window:
+            parts.append(window)
+            tail = ""
+            matched = True
+            break
+        if len(window) > keep:
+            parts.append(window[:-keep])
+            tail = window[-keep:]
+        else:
+            tail = window
+    return "".join(parts) + tail, matched, disconnected
+
+
 def run_send(args):
     payload = args.data
     if args.newline:
@@ -102,12 +144,30 @@ def run_send(args):
     sock.settimeout(args.socket_timeout)
     if payload:
         sock.sendall(payload.encode(args.encoding))
-    output, disconnected = receive_until_idle(sock, args.idle, args.max_wait)
+    if args.expect is None:
+        output, disconnected = receive_until_idle(sock, args.idle, args.max_wait)
+        text = output.decode(args.encoding, errors="replace")
+        matched = None
+    else:
+        text, matched, disconnected = receive_until_match(
+            sock, args.expect, args.expect_timeout, args.encoding)
     close_socket(sock)
-    sys.stdout.write(output.decode(args.encoding, errors="replace"))
+    sys.stdout.write(text)
     if disconnected:
         sys.stderr.write("[串口桥] 响应稳定前连接已经断开\n")
         return 2
+    if args.expect is not None and not matched:
+        # The command went out, so report what actually happened instead of a
+        # blanket success: nothing at all is exit 3, unrelated output is exit 4.
+        if not text:
+            sys.stderr.write(EMPTY_RESPONSE_HINT)
+            return 3
+        sys.stderr.write(
+            f"[串口桥] 已收到输出，但在 {args.expect_timeout:g}s 内未匹配到期望片段 {args.expect!r}。\n")
+        return 4
+    if not text:
+        sys.stderr.write(EMPTY_RESPONSE_HINT)
+        return 3
     return 0
 
 
@@ -291,6 +351,12 @@ def bauds_list(value):
     return bauds
 
 
+def expect_pattern(value):
+    if not value:
+        raise argparse.ArgumentTypeError("--expect 不能为空")
+    return value
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="共享串口桥")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -345,6 +411,11 @@ def build_parser():
     send.add_argument("--idle", type=float, default=0.8)
     send.add_argument("--max-wait", type=float, default=5.0)
     send.add_argument("--socket-timeout", type=float, default=0.2)
+    send.add_argument("--expect", type=expect_pattern, default=None,
+                      help="持续读到输出包含该片段为止（子串匹配；忽略 --idle/--max-wait）。"
+                           "命中退出码 0；有输出未命中为 4；无任何输出为 3")
+    send.add_argument("--expect-timeout", type=float, default=10.0,
+                      help="--expect 的最长等待秒数（默认 10）")
     send.set_defaults(func=run_send)
     return parser
 

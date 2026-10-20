@@ -1,4 +1,7 @@
 import base64
+import contextlib
+import io
+import json
 import queue
 import socket
 import sys
@@ -6,10 +9,12 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from serial_service import SerialService
-from serial_client import Client, RemoteError
+import serial_control  # noqa: E402
+from serial_service import SerialService  # noqa: E402
+from serial_client import Client, RemoteError  # noqa: E402
 
 
 class FakeSerial:
@@ -498,6 +503,60 @@ class AutoBaudTests(unittest.TestCase):
         raw.settimeout(2)
         self.assertIn('波特率'.encode('utf-8'), raw.recv(200))
         self.assertEqual(9600, self.client.call('status')['config']['baudrate'])
+
+
+class SerialControlLeasePathTests(unittest.TestCase):
+    """The Windows controller's -Exclusive path drives serial_control.py with
+    plain --data flags (PS 5.1 cannot pass a JSON object through argv
+    reliably), so that CLI must round-trip the whole one-shot lease against a
+    real service: acquire → send --token --wait → release, with tokenless
+    sends still blocked by `occupied` while the lease is held."""
+
+    def setUp(self):
+        self.device = FakeSerial()
+        self.service = SerialService(port='FAKE', tcp=0, control=0,
+                                     serial_factory=lambda *_: self.device).start()
+        self.addCleanup(self.service.close)
+
+    def run_cli(self, *argv):
+        stdout = io.StringIO()
+        args = ['serial_control.py', '--host', '127.0.0.1',
+                '--control', str(self.service.control_port), *argv]
+        with mock.patch.object(serial_control.sys, 'argv', args), \
+                contextlib.redirect_stdout(stdout):
+            code = serial_control.main()
+        return code, stdout.getvalue()
+
+    def wait_written(self, expected):
+        deadline = time.monotonic() + 2
+        while bytes(self.device.writes) != expected and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(expected, bytes(self.device.writes))
+
+    def test_exclusive_controller_path_round_trip(self):
+        code, out = self.run_cli('agent.acquire')
+        self.assertEqual(0, code)
+        lease = json.loads(out)['result']
+        self.assertEqual(10.0, lease['timeout'])
+
+        code, out = self.run_cli('send', '--data', 'lease-cmd', '--newline', 'cr',
+                                 '--token', lease['token'], '--wait', '2')
+        self.assertEqual(0, code)
+        self.assertEqual('written', json.loads(out)['result']['state'])
+        self.wait_written(b'lease-cmd\r')
+
+        code, out = self.run_cli('agent.release', '--token', lease['token'])
+        self.assertEqual(0, code)
+        self.assertEqual('human', json.loads(out)['result']['owner'])
+
+    def test_lease_blocks_tokenless_cli_send(self):
+        _, out = self.run_cli('agent.acquire')
+        token = json.loads(out)['result']['token']
+        code, out = self.run_cli('send', '--data', 'sneaky', '--newline', 'cr', '--wait', '1')
+        self.assertEqual(2, code)
+        self.assertEqual('occupied', json.loads(out)['error']['code'])
+        self.assertEqual(b'', bytes(self.device.writes))
+        self.run_cli('agent.release', '--token', token)
 
 
 if __name__ == '__main__':

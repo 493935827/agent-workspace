@@ -33,6 +33,15 @@ Check cable, adapter driver, permissions, and whether another tool already owns 
 - Check line endings and whether the device expects a command terminator.
 - For request/response protocols, ensure the agent has write access before typing.
 
+## send Returns Nothing (empty output, exit 3)
+
+- Exit 3 means the command was sent but no byte came back inside the response window. It does NOT mean the device is dead: boot chains can stay silent for 25s+ and some devices swallow the first bytes after a reload.
+- Check whether the command still reached the device: the bridge log records what was written, and the human terminal shows the echo.
+- Verify the link with a bare socket: connect to the shared TCP endpoint, drain ~1s, send a bare CR (`b"\r"`), and wait ~1s for the shell prompt. A prompt means link and board are both alive; then re-send the command with `--expect <prompt-pattern>` so the exit code reflects an actual answer instead of an idle-window guess.
+- If even the bare CR gets no prompt, press the board reset once and watch the bridge log for a boot banner before assuming a dead link.
+- Exit 4 (with `--expect`) means output arrived but never contained the pattern: raise `--expect-timeout` or fix the pattern.
+- Exit 2 still means the connection dropped mid-response; treat the outcome as unknown.
+
 ## Serial Port Disconnects During A Session
 
 - Keep the interactive client open. It reconnects to the bridge automatically.

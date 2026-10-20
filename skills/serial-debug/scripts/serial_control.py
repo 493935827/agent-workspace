@@ -21,11 +21,23 @@ def main():
     parser.add_argument('--expect-pid', type=int, help='Require managed process identity')
     parser.add_argument('--expect-script', help='Require managed source path')
     parser.add_argument('--wait', type=float, default=0, help='Wait up to N seconds for send completion')
+    parser.add_argument('--data', help="Payload for send/send.hex; skips JSON --params "
+                                       "(PS 5.1 cannot pass a JSON object through argv)")
+    parser.add_argument('--encoding', default='utf-8', choices=('utf-8', 'ascii'),
+                        help='Encoding for --data on send')
+    parser.add_argument('--newline', default='none', choices=('none', 'cr', 'lf', 'crlf'),
+                        help='Line ending appended to --data on send')
+    parser.add_argument('--chardelay', type=float, default=None,
+                        help='Per-byte delay in seconds for --data on send')
     args = parser.parse_args()
     try:
         action, params = parse_command(args.command) if args.command else (args.action, json.loads(args.params))
         if not isinstance(params, dict):
             raise ValueError('params must be a JSON object')
+        if action in ('send', 'send.hex') and args.data is not None:
+            params.update(data=args.data, encoding=args.encoding, newline=args.newline)
+            if args.chardelay is not None:
+                params['chardelay'] = args.chardelay
         if action == 'help':
             print(json.dumps(dict(ok=True, result=HELP)))
             return 0

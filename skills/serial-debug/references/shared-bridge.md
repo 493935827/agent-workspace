@@ -53,7 +53,12 @@ python scripts/shared_serial_bridge.py send "misc md 0x00000000 4" --tcp 8888 --
 
 Use `--newline` for command shells that execute on Enter. The agent's command and device response are visible to other clients connected to the bridge.
 If a device expects a different line ending, use `--line-ending crlf` or `--line-ending lf`.
-`send` exits nonzero if the bridge disconnects before the response becomes idle. Treat that as an unknown command outcome; inspect the bridge log and target prompt before deciding whether it is safe to retry.
+
+Exit codes: `0` a response arrived (or `--expect` matched), `2` the connection dropped before the response settled (unknown outcome — inspect the bridge log and target prompt before retrying), `3` sent but nothing came back inside the response window, `4` output arrived but `--expect` never matched.
+
+Empty output with exit 3 is not "device dead": the command was delivered, but slow boot chains (25s+ before the first banner) or a swallowed first byte can leave the 0.8s idle window empty. Verify the link by connecting a bare socket to the shared endpoint, draining ~1s, sending a bare CR, and waiting for the prompt. For scripted calls that must confirm an actual answer, add `--expect <pattern>` (substring match on the decoded stream; `--expect-timeout` caps the wait, default 10s) — with `--expect` a quiet gap no longer ends the read early, only the pattern, the deadline, or a disconnect does.
+
+When the agent must hold the port exclusively, use the Windows controller's `-Exclusive` send or the managed `agent.acquire` / `agent.heartbeat` / `agent.release` lease (see SKILL.md → Agent Connection); tokenless control actions and raw writes are rejected with `occupied` while a lease is held.
 
 ## Coordination Rules
 

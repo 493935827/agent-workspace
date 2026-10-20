@@ -80,9 +80,30 @@ python "<skill-dir>/scripts/shared_serial_bridge.py" send "help" --host 127.0.0.
 
 Use `send` for ordinary agent command/response work. Use the persistent `connect` client only when the user explicitly asks the agent to maintain an interactive session.
 
-3. Read the complete response and exit status before sending the next command. The human terminal should display the same command and device response. A nonzero exit after transmission means the device outcome is unknown: inspect the shared terminal, prompt, and log before deciding whether a retry is safe.
+3. Read the complete response and exit status before sending the next command. The human terminal should display the same command and device response. `send` exit codes: `0` a response arrived (or `--expect` matched), `2` the connection dropped before the response settled (unknown outcome), `3` sent but nothing came back inside the response window, `4` output arrived but `--expect` never matched. Exit 3 does NOT mean the device died: slow boot chains (25s+ before the first banner) and swallowed first bytes legitimately leave the 0.8s idle window empty while the command was still delivered. Verify the link with a bare socket instead: connect to the shared TCP endpoint, drain ~1s, send a bare CR, and wait for the shell prompt — a prompt means link and board are both alive:
 
-4. Read-only diagnostic commands are within an ordinary debugging request. Reset, erase, register or memory writes, flashing, boot-mode changes, and persistent configuration changes require an explicit user request that authorizes that state change; announce the change immediately before sending it.
+```python
+import socket, time
+s = socket.create_connection(("127.0.0.1", 8888), timeout=3); s.settimeout(0.1)
+time.sleep(1)                                      # drain whatever is queued
+try: s.recv(4096)
+except socket.timeout: pass
+s.sendall(b"\r"); time.sleep(0.5)
+try: print(s.recv(4096).decode(errors="replace"))  # prompt = link + board alive
+except socket.timeout: print("no answer in 0.5s")
+```
+
+When a scripted call must confirm an actual answer, pass `--expect <pattern>` (optionally `--expect-timeout N`): the client keeps reading until the pattern appears in the output, and only exit 0 counts as an answer.
+
+4. When the agent needs the device exclusively (setup sequences, state changes a human must not interleave with), use the lease instead of raw sends. One-shot from the Windows controller:
+
+```powershell
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "<path>\serial_console.ps1" -Action Send -Command "help" -Exclusive
+```
+
+That runs `agent.acquire` → a tokened send through the managed service → `agent.release`; while the lease is held, tokenless control actions and raw TCP writes are rejected with `occupied`. For longer agent sessions drive `scripts/serial_control.py` directly: `agent.acquire` returns `{token, timeout, heartbeat}`; send `agent.heartbeat` at about the returned heartbeat interval, or the lease expires and the token is refused with "Lease is no longer valid; do not resume this task"; pass `--token <t>` on every send and mutating call; finish with `agent.release`. A human can always reclaim the device with the workbench「终止 Agent 并接管」button or `agent.takeover`. Operational notes from real board sessions: keep each control call on its own short-lived Client (idle control connections have died after ~45s); a heartbeat thread must own its dedicated connection and tolerate reconnects; never pipe agent output into readers like `head` — a closed read end kills the writer mid-task (SIGPIPE). `written` means the driver accepted the bytes, not that the device executed the command.
+
+5. Read-only diagnostic commands are within an ordinary debugging request. Reset, erase, register or memory writes, flashing, boot-mode changes, and persistent configuration changes require an explicit user request that authorizes that state change; announce the change immediately before sending it.
 
 ## References
 
