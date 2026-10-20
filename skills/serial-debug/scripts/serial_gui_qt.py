@@ -19,7 +19,7 @@ from PySide6.QtCore import QEvent, QTimer, Qt, QByteArray
 from PySide6.QtGui import QColor, QCursor, QFont, QKeySequence, QShortcut, QTextCharFormat, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QInputDialog, QLabel, QLineEdit,
-    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QSystemTrayIcon,
+    QMenu, QMenuBar, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QSystemTrayIcon,
     QTextEdit, QVBoxLayout, QWidget)
 
 from serial_common import AlertMonitor, AnsiLogParser, parse_macro_line
@@ -38,10 +38,121 @@ DEFAULT_OPTIONS = dict(timestamps=True, time_format=TIME_FORMATS[1], wrap=False,
     log_directory=str(Path(__file__).with_name('logs')),
     autobaud_monitor=True, autobaud_probe=False)
 
+# 每个会话的屏幕缓冲上限；LogView.setMaximumBlockCount(5000) 与此保持一致。
+RECORD_LIMIT = 5000
+# 打开超大日志时只解析末尾这么多字节（从换行边界起读），避免卡住界面。
+LOG_TAIL_BYTES = 8 * 1024 * 1024
+
 
 def timestamp(stamp, fmt):
     value = stamp.strftime('%Y-%m-%d %H:%M:%S' if fmt.startswith('日期') else '%H:%M:%S')
     return value + (f'.{stamp.microsecond // 1000:03d}' if fmt.endswith('毫秒') else '')
+
+
+# 打开日志文件时识别的行首时间戳形态，从最具体到最宽松依次尝试。
+_DATE = r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})'
+_CLOCK = r'(\d{1,2}):(\d{2}):(\d{2})(?:[.,](\d{1,6}))?'
+LOG_STAMP_PATTERNS = tuple((re.compile(rx), dated) for rx, dated in (
+    (rf'\[{_DATE}[ T]{_CLOCK}\] ?', True),   # [2026-10-20 14:06:01.123]（本工具默认格式）
+    (rf'{_DATE}[ T]{_CLOCK} ?', True),       # 2026-10-20 14:06:01.123 / 2026-10-20T14:06:01
+    (rf'\[{_CLOCK}\] ?', False),             # [14:06:01.123]（本工具「时分秒」格式）
+    (rf'{_CLOCK} ?', False),                 # 14:06:01.123
+))
+
+
+def match_log_stamp(line, base_date):
+    """Recognize a leading timestamp; return (match, datetime, has_date) or None.
+
+    没有日期部分的时间戳按 base_date（通常取日志文件自身的日期）补齐；候选
+    不合法（如 25:61:61、不存在的闰日）时继续尝试更宽松的形态，最终退回
+    普通文本行处理。
+    """
+    for pattern, dated in LOG_STAMP_PATTERNS:
+        m = pattern.match(line)
+        if not m:
+            continue
+        g = m.groups()
+        try:
+            if dated:
+                stamp = datetime(int(g[0]), int(g[1]), int(g[2]), int(g[3]), int(g[4]), int(g[5]),
+                                 int((g[6] or '').ljust(6, '0')[:6]))
+            else:
+                stamp = datetime(base_date.year, base_date.month, base_date.day, int(g[0]),
+                                 int(g[1]), int(g[2]), int((g[3] or '').ljust(6, '0')[:6]))
+        except ValueError:
+            continue
+        return m, stamp, dated
+    return None
+
+
+def decode_log_bytes(data):
+    """Decode raw log bytes; return (text, 面向用户的编码名称).
+
+    UTF-16 只认带 BOM 的数据——Python 的 utf-16 解码器在无 BOM 时会按
+    本机字节序硬解，偶数长度的 GBK/ASCII 内容会被错误解码成乱码。
+    """
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        try:
+            return data.decode('utf-16'), 'UTF-16'
+        except UnicodeError:
+            pass
+    for name, encoding in (('UTF-8', 'utf-8-sig'), ('GBK', 'gbk')):
+        try:
+            return data.decode(encoding), name
+        except UnicodeError:
+            continue
+    return data.decode('gbk', errors='replace'), 'GBK'
+
+
+def clean_log_spans(spans):
+    """Strip device erase markers from imported text; return (spans, removed)."""
+    cleaned, removed = [], 0
+    for value, style in spans:
+        text = value.replace('\x08', '').replace('\x7f', '')
+        removed += len(value) - len(text)
+        if text:
+            cleaned.append((text, style))
+    return cleaned, removed
+
+
+def parse_log_text(text, base_stamp):
+    """Split decoded log text into LOG records, recognizing leading timestamps.
+
+    识别出行首时间戳的行开始一条新记录：时间戳并入记录的 stamp、从正文里
+    去掉（显示时由「显示时间戳」统一渲染）；其后无时间戳的行并入同一条
+    记录——本工具写出的日志正是把一条记录折行保存，这样能还原原始结构。
+    整个文件都识别不到时间戳时，每行单独成条并按 base_stamp（文件修改
+    时间）标注。ANSI 颜色序列照常解析。返回 (records, stats)。
+    """
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    lines = text.split('\n')
+    if lines and lines[-1] == '':
+        lines.pop()
+    matches = [match_log_stamp(line, base_stamp.date()) for line in lines]
+    # 只有存在时间戳的文件才把无时间戳行当作记录折行；纯文本日志逐行成条。
+    merge = any(matched is not None for matched in matches)
+    parser = AnsiLogParser()
+    records = []
+    stats = dict(lines=len(lines), stamps=0, dated=0, merged=0, plain=0, erases=0)
+    for line, matched in zip(lines, matches):
+        source = line[matched[0].end():] if matched else line
+        spans, removed = clean_log_spans(parser.feed(source + '\n'))
+        stats['erases'] += removed
+        chunk = ''.join(value for value, _ in spans)
+        if matched is not None:
+            _, stamp, dated = matched
+            records.append(dict(tag='LOG', text=chunk, stamp=stamp, raw=b'', spans=spans))
+            stats['stamps'] += 1
+            stats['dated'] += 1 if dated else 0
+        elif records and merge:
+            previous = records[-1]
+            previous['text'] += chunk
+            previous['spans'] += spans
+            stats['merged'] += 1
+        else:
+            records.append(dict(tag='LOG', text=chunk, stamp=base_stamp, raw=b'', spans=spans))
+            stats['plain'] += 1
+    return records, stats
 
 
 class SerialWorker(threading.Thread):
@@ -460,10 +571,19 @@ class Workbench(Preview):
         menu.addAction('条件提醒…', self.show_alert_settings)
         menu.addAction('提醒重新计数', self.reset_alerts)
         self.logging_action = menu.addAction('开始持续日志…', self.toggle_logging)
+        menu.addAction('打开日志文件…', self.open_log_dialog)
         menu.addAction('时间戳与文件设置…', self.show_file_settings)
         menu.addAction('搜索选项…', self.show_search_settings)
         menu.addAction('布局模块…', self.show_modules)
         menu.addAction('关于工作台', self.about)
+        # Also expose log opening where save lives: the 文件 menubar menu.
+        menubar = self.findChild(QMenuBar)
+        file_menu = menubar.actions()[0].menu() if menubar is not None and menubar.actions() else None
+        if file_menu is not None:
+            before = file_menu.actions()[0]
+            open_action = file_menu.addAction('打开日志文件…', self.open_log_dialog, 'Ctrl+O')
+            file_menu.removeAction(open_action)
+            file_menu.insertAction(before, open_action)
         # Surface functional controls in the existing settings tab, keeping the shell unchanged.
         layout = self.modules[2][0].layout()
         for child in self.modules[2][0].findChildren(QLabel):
@@ -472,6 +592,7 @@ class Workbench(Preview):
                 child.setWordWrap(True)
         for title, callback in [('时间戳与文件设置…', self.show_file_settings),
                                 ('开始 / 停止持续日志', self.toggle_logging),
+                                ('打开日志文件…', self.open_log_dialog),
                                 ('条件提醒…', self.show_alert_settings)]:
             b = QPushButton(title)
             b.clicked.connect(callback)
@@ -1207,7 +1328,7 @@ class Workbench(Preview):
                       spans=spans if spans is not None else [(text, AnsiLogParser.DEFAULT)])
         s['records'].append(record)
         # A bounded screen buffer; continuous files have no record-count limit.
-        del s['records'][:-5000]
+        del s['records'][:-RECORD_LIMIT]
         if s['log_file']:
             try:
                 value, s['file_line_start'] = self.format_file([record], s['file_options'], s['file_line_start'])
@@ -1389,6 +1510,84 @@ class Workbench(Preview):
         if path:
             self.options()['log_directory'] = str(Path(path).parent)
             self.save_snapshot(self.active, path)
+
+    def open_log_dialog(self):
+        """Pick a saved log file and load it into the current session."""
+        self.capture_session()
+        directory = self.options()['log_directory']
+        start = directory if Path(directory).exists() else str(Path.home())
+        path, _ = QFileDialog.getOpenFileName(self, '打开日志文件（自动识别时间戳与编码）', start,
+                                              '日志 (*.log *.txt *.csv);;所有文件 (*)')
+        if path and self.load_log_file(self.active, path):
+            self.options()['log_directory'] = str(Path(path).parent)
+
+    @staticmethod
+    def read_log_source(path):
+        """Read a log file; oversized files are capped to their tail."""
+        size = path.stat().st_size
+        if size <= LOG_TAIL_BYTES:
+            return path.read_bytes(), False
+        with path.open('rb') as stream:
+            stream.seek(size - LOG_TAIL_BYTES)
+            data = stream.read()
+        newline = data.find(b'\n')
+        if newline >= 0:
+            data = data[newline + 1:]  # Start on a whole line after the cut.
+        return data, True
+
+    def load_log_file(self, index, path):
+        """Open a saved log file, recognize it, and append it to session `index`.
+
+        识别结果以 SYS 摘要说明（行数、时间戳识别情况、编码、截断提示）。
+        导入的记录不写入正在进行的持续日志文件，也不计入收发统计。
+        """
+        path = Path(path)
+        try:
+            data, capped = self.read_log_source(path)
+        except OSError as exc:
+            self.report_error(f'打开日志失败：{exc}')
+            return False
+        text, encoding = decode_log_bytes(data)
+        try:
+            base_stamp = datetime.fromtimestamp(path.stat().st_mtime)
+        except OSError:
+            base_stamp = datetime.now()
+        records, stats = parse_log_text(text, base_stamp)
+        total = len(records)
+        if not records:
+            self.report_error(f'打开日志失败：{path.name} 没有可识别的内容')
+            return False
+        del records[:-RECORD_LIMIT]
+        s = self.sessions[index]
+        s['records'].extend(records)
+        del s['records'][:-RECORD_LIMIT]
+        if s['options']['paused']:
+            s['pending'] += len(records)
+            if index == self.active:
+                self.pause_badge.setText(f"已暂停 · 新增 {s['pending']} 条")
+        else:
+            for record in records:
+                self.render_record(index, record)
+            if index == self.active and self.search.text():
+                self.find()
+        summary = [f'已打开日志 {path.name}（{encoding}）：{stats["lines"]} 行 → {total} 条记录']
+        notes = []
+        if capped:
+            notes.append(f'文件较大，仅解析末尾 {LOG_TAIL_BYTES // (1024 * 1024)} MB')
+        if total > len(records):
+            notes.append(f'仅保留最近 {RECORD_LIMIT} 条')
+        if stats['stamps']:
+            notes.append(f"识别时间戳 {stats['stamps']} 个（{stats['dated']} 带日期）")
+            if stats['dated'] < stats['stamps']:
+                notes.append('无日期时间戳按文件日期补齐')
+        else:
+            notes.append('未识别到时间戳，按文件修改时间标注')
+        if stats['merged']:
+            notes.append(f"{stats['merged']} 行无时间戳并入前条")
+        if stats['erases']:
+            notes.append(f"已忽略 {stats['erases']} 个退格控制符")
+        self.append(index, 'SYS', summary[0] + ('\n' + '；'.join(notes) if notes else ''))
+        return True
 
     def toggle_logging(self):
         if self.sessions[self.active]['log_file']:
@@ -2035,6 +2234,8 @@ class Workbench(Preview):
         QMessageBox.information(self, 'Serial Workbench',
             '真实 Qt 串口工作台\n支持多串口、ANSI、逐行宏、持续日志、条件提醒和配置恢复。\n'
             '屏幕保留最近 5000 条接收/发送记录；持续日志不受此限制。\n'
+            '可打开历史日志文件：自动识别行首时间戳（无日期按文件日期补齐）与\n'
+            'UTF-8/UTF-16/GBK 编码；识别结果在 SYS 摘要中说明。\n'
             'ANSI 仅解析颜色和样式，不模拟光标终端。')
 
     @staticmethod
