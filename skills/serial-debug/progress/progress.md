@@ -1,11 +1,12 @@
 # 项目进度
 
-最后更新：2026-10-20 17:05（Asia/Shanghai）
+最后更新：2026-10-20 18:05（Asia/Shanghai）
 
 ## 当前概况
 
 - 目标 / 当前阶段：serial-debug skill 全链路（服务端 + Qt 工作台 + Windows 控制器 + bridge/客户端）持续迭代；Issue #1 Phase 1 已完成，进入实机验收与打磨期。
 - 已完成并验证：Windows 控制器全工作流（含 uv shim）；Qt 工作台 Fluent 2 改造、日志降噪；菜单 5 / GUI「自动检测串口」重做（USB 直连优先，配置编码根因修复）；COM6 实机全链路；连接中波特率检测（服务端乱码监视+自动重扫 `af63f9c`，菜单 10 / GUI 接入 `67255ca`）；共享连接 30s 空闲失效修复（`c6c3afa`）；「共享串口桥」分组与一键停止；GUI 打开并识别日志文件（`c527d4e`）；离线包已交付 DTS（py310 venv 离线复验）；全工作流测试方案 `docs/test-plan.md`（L0–L5 + 实机清单）；全代码审查（4 P1 / 10 P2 / 16 P3）两轮快修：`5bd9670`（autobaud 队列/退出码/被动 DTR/ps1 加固）+ `367aed4`（takeover×扫描竞态、桥死亡假在线探活、接管失败非致命、raw_clients 锁竞态、raw 拒发不断连，关键用例先红后绿）；全套 111 项测试绿（offscreen ~600s）。各条详情见下方归档行与链接的 handoff。
+- 复现与修复（2026-10-20 18:05，无硬件，假 TCP 设备经 `socket://` 接入）：板上会话两项报告均复现成立并已修复（`184abcd`，全套 118 项测试绿）。① send 空返回：静默设备上实际只等 `--idle 0.8s` 即放弃（`--max-wait` 仅封顶流式收包），命令字节确认已送达；慢启动 10s 场景中 send 放弃后 ~9s 响应才到。修复：空回应改 exit 3 + stderr 提示（ps1 同步文案并透传退出码），新增 `--expect/--expect-timeout`（命中 0 / 有输出未命中 4）。② ps1 raw 发送从不 acquire（owner 恒 human）且租约期间被拒仍 exit 0。修复：`Send-SerialCommand` 返回退出码 + 新增 `-Exclusive` 一次性租约路径（acquire → `serial_control.py send --token --data --wait` → release；occupied 指引接管；每次控制调用独立短连接），`serial_control.py` 新增 `--data/--encoding/--newline/--chardelay` 直传参数绕开 PS 5.1 JSON 引号问题；SKILL.md/shared-bridge.md/troubleshooting.md/windows README 文档四处同步。服务端租约生命周期（acquire/occupied/raw_rejected/过期 invalid_token/takeover/release）实测与报告一致；本机 8889 空闲 50s 不断连（板上 ~45s WinError 10053 未复现，心跳连接设计仍需容忍重连）。注意报告中的行号已漂移（run_send 现 97-111、Send-SerialCommand 现 434-442）。复现脚本在 `%TEMP%\serial_repro\`（fake_device/raw_probe/event_watch/idle_probe）。
 - 已实现未验证：历史遗留的设备级 RX 应答往返（send 后确认设备回包）——现有 COM6 板持续输出 RRAM_TEST 日志，具备补验条件。
 - 阻塞：无（推送积压已于 2026-10-20 16:52 清空：网络恢复后一次推送 `078ed2e..367aed4` 共 7 个提交；推送命令 `git -c credential.helper= -c credential.helper=manager push origin master`——先清空 helper 列表再仅用系统 manager，绕开本地损坏的 wincred helper）。
 - 下一步：审查项仅剩 P2 PS 5.1 健壮性（ps1:345/95 `2>&1`/`2>$null`×EAP=Stop 吞原生 stderr；ps1:136-138/392 `Start-Process -ArgumentList` 空格路径不加引号）、P2 readability 固定 UTF-8（GBK 日志设备会误触发自动重扫，windows/README:57 关联）与 P3/测试缺口打包（完整 file:line 清单见快修 handoff）；用 RRAM_TEST 输出板按 `docs/test-plan.md` 第 6 节清单补设备级往返、被动波特率检测、「在线检测（中途换波特率）」与「停止桥并释放端口」实机人工验收（先确认是否停板上的测试）；style token 改动同步上游 serial-gui 仓库。
