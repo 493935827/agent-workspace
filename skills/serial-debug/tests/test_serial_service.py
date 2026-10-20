@@ -146,6 +146,23 @@ class ServiceTests(unittest.TestCase):
                 self.client.call(action, **params)
         self.assertEqual(self.device.writes, b'')
 
+    def test_call_channel_rebuilds_after_transport_death(self):
+        # Regression: an idle GUI used to lose its call channel (30s control
+        # socket timeout) while the subscription stayed alive; every later
+        # send failed until a manual disconnect+connect. The client must
+        # rebuild the call channel so only the in-flight call is lost.
+        self.client.subscribe()
+        # Call channel dies out-of-band; shutdown bypasses the makefile refcount.
+        self.client.socket.shutdown(socket.SHUT_RDWR)
+        self.client.socket.close()
+        with self.assertRaises((OSError, EOFError, ValueError)):
+            self.client.call('status')
+        job = self.client.call('send', data='recovered')
+        self.assertEqual(self.wait_job(job)['state'], 'written')
+        self.assertEqual(self.device.writes, b'recovered')
+        event = self.client.next_event(timeout=2)
+        self.assertEqual(event.get('event'), 'state')  # subscription survived
+
 
 class DriftSerial:
     """Device that transmits readable text only when read at its true baud."""

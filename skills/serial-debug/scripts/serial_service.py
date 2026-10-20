@@ -15,6 +15,11 @@ from serial.tools import list_ports
 from serial_protocol import VERSION, ActionError, encode, payload, read_message
 from serial_baud_scan import DEFAULT_BAUDS, readability, scan_open_device
 
+# Control (call) connections idle for as long as the human steps away between
+# commands, so they must not carry a socket read timeout: the GUI only writes
+# to this channel when the user actually sends. Event and raw handlers apply
+# their own short timeouts. Kept as a module constant for tests.
+CONTROL_READ_TIMEOUT = None
 
 AUTO_BAUD_DEFAULTS = dict(enabled=False, active=False, bauds=DEFAULT_BAUDS,
                           seconds=0.5, rounds=1, min_bytes=None,
@@ -175,7 +180,6 @@ class SerialService:
 
     def _connection(self, sock, handler):
         try:
-            sock.settimeout(30)
             handler(sock)
         except (OSError, EOFError):
             pass
@@ -219,6 +223,9 @@ class SerialService:
                     capabilities=['events', 'jobs', 'exclusive', 'configure', 'device-release', 'auto-baud'])
 
     def _control(self, sock):
+        # Call connections must survive arbitrarily long idle periods between
+        # user actions; see CONTROL_READ_TIMEOUT above.
+        sock.settimeout(CONTROL_READ_TIMEOUT)
         with sock.makefile('rb') as stream:
             while not self.stop.is_set():
                 request = {}

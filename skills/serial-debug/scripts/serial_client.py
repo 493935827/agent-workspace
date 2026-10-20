@@ -30,15 +30,43 @@ class Client:
     def call(self, action, token=None, **params):
         with self.lock:
             request_id = uuid.uuid4().hex
-            self.socket.sendall(encode(dict(version=VERSION, id=request_id, action=action,
-                                            params=params, token=token)))
-            response = read_message(self.stream)
+            try:
+                self.socket.sendall(encode(dict(version=VERSION, id=request_id, action=action,
+                                                params=params, token=token)))
+                response = read_message(self.stream)
+            except (OSError, EOFError, ValueError):
+                # The call channel died mid-call (idle timeout on the far end,
+                # dropped connection, closed socket). The outcome of THIS call
+                # is unknown: surface the failure but rebuild the channel so
+                # the next call works without a full reconnect. Never resend.
+                self._rebuild_channel()
+                raise
             if response.get('id') != request_id:
+                # A foreign or stale response consumed our slot; the channel is
+                # desynced, so rebuild before reporting the mismatch.
+                self._rebuild_channel()
                 raise RemoteError('protocol', 'Response ID mismatch; outcome unknown')
             if not response.get('ok'):
                 error = response['error']
                 raise RemoteError(error['code'], error['message'])
             return response['result']
+
+    def _rebuild_channel(self):
+        """Replace a dead call channel; the event subscription is untouched."""
+        try:
+            self.socket.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            self.socket.close()
+        except OSError:
+            pass
+        try:
+            self.stream.close()
+        except OSError:
+            pass
+        self.socket = socket.create_connection((self.host, self.port), self.timeout)
+        self.stream = self.socket.makefile('rb')
 
     def subscribe(self):
         if self.event_socket is not None:
