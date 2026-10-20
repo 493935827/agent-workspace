@@ -1,11 +1,11 @@
 # 项目进度
 
-最后更新：2026-10-20 15:40（Asia/Shanghai）
+最后更新：2026-10-20 15:48（Asia/Shanghai）
 
 ## 当前概况
 
 - 目标 / 当前阶段：serial-debug skill 全链路（服务端 + Qt 工作台 + Windows 控制器 + bridge/客户端）持续迭代；Issue #1 Phase 1 已完成，进入实机验收与打磨期。
-- 已完成并验证：Windows 控制器全工作流（含 uv shim 场景）；Qt 工作台 Fluent 2 深色风格与可访问性改造；GUI 日志降噪（按键字节默认静默 + 「显示按键字节」开关，`2ed0ad6`/`cb4af8d`）；菜单 5「自动检测串口并连接」重做并修复配置编码损坏根因、主动波特率检测（`e6989e5`）；GUI「自动检测串口」按钮重做（唯一已接入 USB 口直连、多候选预选列表、无 USB 才等待）；COM6 实机全链路通过；全套 51 项测试通过（offscreen 约 62 秒）；离线包交付：`D:\trash\Work\Innostar-ic\DTS\serial-debug-offline-py310-win_amd64.7z`（78.3MB，PySide6-Essentials+pyserial wheel 方案，py3.10 独立 venv 离线安装复验 + 51 项测试通过）。
+- 已完成并验证：Windows 控制器全工作流（含 uv shim 场景）；Qt 工作台 Fluent 2 深色风格与可访问性改造；GUI 日志降噪（按键字节默认静默 + 「显示按键字节」开关，`2ed0ad6`/`cb4af8d`）；菜单 5「自动检测串口并连接」重做并修复配置编码损坏根因、主动波特率检测（`e6989e5`）；GUI「自动检测串口」按钮重做（唯一已接入 USB 口直连、多候选预选列表、无 USB 才等待）；COM6 实机全链路通过；全套 51 项测试通过（offscreen 约 62 秒）；离线包交付：`D:\trash\Work\Innostar-ic\DTS\serial-debug-offline-py310-win_amd64.7z`（78.3MB，PySide6-Essentials+pyserial wheel 方案，py3.10 独立 venv 离线安装复验 + 51 项测试通过）；GUI「打开并识别日志文件」（`c527d4e`：行首时间戳与编码自动识别、折行还原、`[LOG]` 标签，详见归档行）。
 - 已实现未验证：历史遗留的设备级 RX 应答往返（send 后确认设备回包）——现有 COM6 板持续输出 RRAM_TEST 日志，具备补验条件。
 - 阻塞：推送被网络阻断（github.com:443 连接重置/超时，两个会话共 5 次探测失败，`-c credential.helper=` 已排除凭据因素）；本地功能与验证全部完成。
 - 2026-10-19 复诊「自动检测并连接用不了」：代码未坏（20 项检测相关单测 + loop:// 桥/send 链路冒烟通过，`5519739` 后未再改动），根因是板子未接入——当前机器仅剩 COM4/COM5 两个蓝牙虚拟串口（BTHENUM，无 USB VID/PID，按设计被排除），上次验收用的 COM6 已不在系统；插回 USB 串口板后菜单 5 即恢复。本地配置仍为 COM6/115200，完好。
@@ -23,6 +23,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-20 / GUI 打开并识别日志文件 | 「文件→打开日志文件…」Ctrl+O /「更多」/ 设置页三入口，读回当前会话（`[LOG]` 标签、ANSI 解析）；行首时间戳四类形态识别（无日期按文件日期补齐）、UTF-8/UTF-16(BOM)/GBK 探测（UTF-16 必须 BOM——无 BOM 会按本机序硬解 GBK 的坑）、折行还原、超大文件尾读 8MB、`RECORD_LIMIT` 提常量；新增 17 项测试，全套 101 项绿（×2 验证）；实机验收待板子；提交 `c527d4e`/`4a0056f`/`e0f2e09` 随分支待推 | [GUI open log](handoff-20261020-154800-gui-open-log.md) |
 | 2026-10-20 / 全代码审查 + 快修包 | 4 路并行整体审查核心代码（4 P1 / 10 P2 / 16 P3，P1 均经源码核实；77 项基线复跑全绿）；快修 8 文件：autobaud 请求锁内赋值 + 断连/释放清挂起扫描、run_autobaud 退出码 4/5 修正、被动检测 DTR/RTS 拉低、parse_probe 非 ASCII 修复、ps1 补 `-Passive`/pid 容错/慢启动不误删；+7 回归测试（定向 34 绿，全套 100 绿 + 1 项无关负载抖动）；提交 `5bd9670` 待网络恢复推送；未修 P1/PS 5.1/测试缺口清单在 handoff | [Code review quickfix](handoff-20261020-153500-code-review-quickfix.md) |
 | 2026-10-20 / GUI 共享串口桥分组与一键停止 | 设置页新增「共享串口桥」分组（连接 / 接管 / 新按钮「停止桥并释放端口」，按会话类型显隐）；一键停止走 `ServiceStopWorker`：status 取 instance → 必要时收回 Agent 租约 → `service.stop`，桥退出即释放串口并自动退役残留 worker；新增 5 项测试，全套 77 项通过；源码改动已随 `67255ca` 入库（并行会话顺带提交），补提交 `4695a90` 已推送；实机验收待板子 | [GUI bridge stop group](handoff-20261020-105711-gui-bridge-stop-group.md) |
 | 2026-10-20 / 共享连接发数据失效修复 | 定位根因：服务端给 call 连接设 30 秒空闲超时，GUI 停留超时后呼叫通道被静默关闭而订阅通道存活，会话假在线、每次发送仅一条 WARN；修复为服务端去空闲超时 + 两个客户端 `Client.call` 通道自愈（不自动重发）；31 秒复现修复前红/修复后绿；2 项回归测试；72 项测试通过；修复随 `c6c3afa` 推送 | [Shared-connection send fix](handoff-20261020-104500-shared-connection-send-fix.md) |
