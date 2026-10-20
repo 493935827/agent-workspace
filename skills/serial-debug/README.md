@@ -35,7 +35,7 @@ python scripts/serial_gui_qt.py
 工作台有两种用法：
 
 - **人工直连**：只做人工调试时，在会话中直接选择串口与波特率连接；工作台进程独占该 COM 口。
-- **共享服务**：人工与 Agent 共用同一串口时，启动共享服务（`serial_service_cli.py`），再在工作台菜单选择「更多 → 连接共享服务…」，填写服务地址（默认 `127.0.0.1`）、控制端口（默认 `8889`）、目标串口和波特率。服务独占物理串口，工作台作为观察/控制客户端接入；这与 miniterm、`serial_control.py` 使用同一个中间层。
+- **共享服务**：人工与 Agent 共用同一串口时，启动共享服务（`serial_service_cli.py`），再在工作台菜单选择「更多 → 连接共享服务…」，填写服务地址（默认 `127.0.0.1`）、控制端口（默认 `8889`）、目标串口和波特率。服务独占物理串口，工作台作为观察/控制客户端接入；这与 miniterm、`serial_control.py` 使用同一个中间层。设置页的「共享串口桥」分组集中了这些按钮：「连接共享服务…」「终止 Agent 并接管」「停止桥并释放端口」；一键停止会让桥进程退出并释放串口，之后其他工具可以直接打开该端口。
 
 同一 COM 口只能被一方持有：共享服务已连接设备时，不要再直连同一串口；反之直连时也无法启动共享服务。
 
@@ -47,7 +47,7 @@ python scripts/serial_gui_qt.py
 
 ### 5. Agent 独占与人工接管
 
-Agent 通过 `agent.acquire` 获得凭证并按返回周期心跳。独占期间其他客户端不能发送或修改配置，但仍可查看状态和 RX/TX。共享服务会话下，工作台状态栏会显示当前控制权；Agent 占用时，设置页的「终止 Agent 并接管」按钮可用，点击后排队任务取消、旧凭证失效，服务确认停止旧写入后恢复人工控制。发送结果为未知时不得自动重发。
+Agent 通过 `agent.acquire` 获得凭证并按返回周期心跳。独占期间其他客户端不能发送或修改配置，但仍可查看状态和 RX/TX。共享服务会话下，工作台状态栏会显示当前控制权；Agent 占用时，设置页「共享串口桥」分组中的「终止 Agent 并接管」按钮可用，点击后排队任务取消、旧凭证失效，服务确认停止旧写入后恢复人工控制。发送结果为未知时不得自动重发。「停止桥并释放端口」是同一分组里的一键退出：确认后先收回 Agent 租约（如被占用），再让桥进程停止并释放串口，Agent 与其他客户端的连接会一并断开；未连接会话时也能对仍在运行的桥执行停止。
 
 ### 6. 常见问题
 
@@ -69,6 +69,6 @@ The service binds loopback only. Raw TCP defaults to port 8888 and management de
 
 An Agent must call `agent.acquire`, heartbeat at the returned interval, and pass its lease token to every mutating action. Heartbeat expiry, normal release, and `agent.takeover` invalidate the old token and cancel queued work. Takeover waits for an active byte write to stop before returning human control. A send result of `written` means the driver accepted the bytes; it does not mean the device executed the command. `unknown` must not be retried automatically.
 
-Closing the workbench closes only its management session. `serial.close` releases the device while leaving the service and raw clients alive; it also disables automatic reconnect until `serial.open` or `serial.reconnect`. Logs are asynchronous and bounded; a log error or dropped client event is exposed in `status` and does not stop RX.
+Closing the workbench closes only its management session. The workbench settings tab groups the shared-bridge controls (connect, agent takeover, and a one-click「停止桥并释放端口」that takes the lease back from an agent if needed, stops the bridge process, and releases the serial port). `serial.close` releases the device while leaving the service and raw clients alive; it also disables automatic reconnect until `serial.open` or `serial.reconnect`. Logs are asynchronous and bounded; a log error or dropped client event is exposed in `status` and does not stop RX.
 
 The Windows menu remains in `windows/serial_console.ps1`; `windows/serial_gui.cmd` starts the workbench. `serial_config.local.psd1` overrides the complete default configuration and is not committed. Hardware round trips still require the manual acceptance checklist: open the selected COM port, verify parameters and line endings, observe raw RX/TX, unplug and reinsert the board, release the device, and confirm control-line behavior.

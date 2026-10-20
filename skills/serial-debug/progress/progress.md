@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-20 10:35（Asia/Shanghai）
+最后更新：2026-10-20 11:40（Asia/Shanghai）
 
 ## 当前概况
 
@@ -12,6 +12,7 @@
 - 2026-10-19 新增「连接中波特率检测」：服务端乱码监视 + 自动重扫切换（默认被动，`AutoBaudProbe`/`--autobaud-probe` 开启主动探测）；控制动作 `serial.autobaud`/`autobaud.status`/`serial.autobaud.configure`，事件 `baud_scan`/`baud_changed`，终端注入「波特率已切换」提示；桥新增 `--autobaud*` 启动参数与 `autobaud` 在线检测子命令（exit 0/2/3/4/5/6）；菜单 10 增加方式 3「在线检测」并支持把新波特率写回本地配置；评分核心抽到 `scripts/serial_baud_scan.py` 供离线/在线共用（离线 CLI 行为不变）。agent 租约期间自动扫描暂停，手动触发不受影响。全套 66 项测试通过（+15）；loop:// 在线检测与 ps1 启动参数冒烟通过；实机波特率漂移验收待板子接回。
 - 2026-10-20 修复「共享连接有时要断开再连接才能发数据」：根因是服务端 `_connection` 给控制（call）连接设了 30 秒 socket 超时，而 GUI 只在用户发送时才用这条连接——空闲超 30 秒服务端就静默关闭呼叫通道，订阅通道（RX 日志）还活着，会话仍显示已连接，之后每次发送都失败（仅一条 WARN），只有断开重连才恢复。修复两层：服务端 call 连接不再设空闲超时（`CONTROL_READ_TIMEOUT=None`，订阅/raw 仍各有 1 秒超时）；`serial_client.py`/`serial_service_client.py` 的 `Client.call` 遇传输层死亡自动重建呼叫通道并原样抛出本次错误（本次结果未知不自动重发，符合既有约定），ID 不匹配（通道错位）时同样重建。31 秒空闲复现脚本修复前红（设备收不到字节、会话假在线）修复后绿；新增 2 项回归测试（call 通道传输死亡后自愈：服务级 + GUI 端到端）；全套 72 项测试通过。注意：工作树还混有并行会话的 GUI 内联自动波特率未提交改动（`serial_gui_qt.py`/`serial_baud_scan.py`/`tests/test_ui_autobaud.py`），本次修复未提交，待用户决定提交切分。
 - 2026-10-20 GUI 接入在线波特率检测（用户要求不开 CLI）：直连会话内置乱码监视（默认开，会话级「乱码自动重扫波特率」/「自动重扫允许主动探测」开关随会话持久化），中途换波特率自动切换并以 `SYS` 行提示；「日志设置」页与「更多」菜单新增「在线检测波特率」（被动/主动选择），直连走工作线程内 `scan_open_device`（扫描期间收发自然暂停），服务会话经 `serial.autobaud` + `baud_scan`/`baud_changed` 事件渲染；切换后同步会话波特率字段。注意 `SerialWorker` 的 `options` 是整个会话字典，会话级开关在 `options['options']`。全套 72 项测试通过（+4，tests/test_ui_autobaud.py；与连接修复的 2 项回归合并验证）。
+- 2026-10-20 GUI 新增「共享串口桥」分组与一键停止：设置页按钮重排为 会话操作 → 波特率检测 → 「共享串口桥」分组（连接共享服务… / 终止 Agent 并接管 / 新按钮「停止桥并释放端口」，后两个按钮按会话类型显隐）；一键停止走 `ServiceStopWorker` 短连接：`status` 取 instance → 必要时 `agent.takeover` 收回租约 → `service.stop`，桥进程退出即释放串口，成功后自动退役本会话残留 worker（避免假在线）；未连接的服务会话也能停仍在运行的桥，失败（含服务不可达）写 ERROR 并置状态栏。新增 `tests/test_ui_service_controls.py` 5 项（分组显隐/确认释放/收回租约/取消不动作/不可达报错），全套 77 项测试通过。注意：`serial_gui_qt.py` 的本功能改动被并行会话的 `67255ca`（在线波特率检测）顺带带入且已推送，提交信息未覆盖本功能；本条目对应的补提交只含测试与文档。
 - 下一步：用 RRAM_TEST 输出板补设备级往返、被动波特率检测与「在线检测（中途换波特率）」人工验收（先确认是否停板上的测试）；style token 改动同步上游 serial-gui 仓库。
 
 ## 对话归档
