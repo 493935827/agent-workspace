@@ -94,8 +94,27 @@ A current user instruction to keep work local or skip commit/push takes preceden
 2. Prefer the current branch's configured remote upstream. If it has none, use an explicitly configured push remote (`branch.<name>.pushRemote`, then `remote.pushDefault`), otherwise the sole configured remote, and target the same branch name with `--set-upstream`. With multiple remotes and no configured selection, detached HEAD, or a local-only upstream, finish the local handoff and ask only for the unresolved destination. Never guess a repository or publish other branches or tags.
 3. Include this handoff, its index, the navigation-rule changes, and identifiable task changes from this conversation. Preserve unrelated working-tree and staged changes; stage explicit paths or isolated hunks, never the entire repository indiscriminately. If mixed changes cannot be separated reliably, retain the documents and explain the commit blocker. Honor ignore rules and exclude credentials and temporary artifacts.
 4. Run validation appropriate to the actual changes; documentation-only updates need content/link checks and `git diff --cached --check`, not a full project regression. Reuse still-valid task test results. Record unfinished or unverified work accurately; do not claim it passed. If required validation is unavailable or fails, retain the local work and report the blocker instead of uploading unvalidated task changes unless the user has explicitly authorized that.
-5. Commit the scoped changes with a meaningful message; skip empty commits. Inspect the outgoing commit range and push only when all outgoing work belongs to this conversation or is already authorized. Use an explicit remote and single destination branch, such as `git push <remote> HEAD:refs/heads/<destination>`, adding `--set-upstream` when appropriate. Existing authorized local commits still need pushing even if this invocation produces no new commit.
+5. Commit the scoped changes with a message following the commit message format below; skip empty commits. Inspect the outgoing commit range and push only when all outgoing work belongs to this conversation or is already authorized. Use an explicit remote and single destination branch, such as `git push <remote> HEAD:refs/heads/<destination>`, adding `--set-upstream` when appropriate. Existing authorized local commits still need pushing even if this invocation produces no new commit.
 6. Confirm success from the push result; if the result is uncertain, inspect the remote branch before retrying. On authentication, network, branch-protection, or non-fast-forward errors, preserve the local commit and report the exact obstacle. Do not force push or automatically merge/rebase to bypass it. Report upload status in the reply without repeatedly editing and recommitting the archive merely to record its own commit or push result.
+
+## Commit message format
+
+Write commits in Conventional Commits 1.0.0 form and match the repository's existing history; where a repository already commits in a different established style, keep that style:
+
+```
+<type>(<scope>): <subject>
+
+[optional body — one bullet per change, wrapped near 72 characters]
+
+[optional trailers]
+```
+
+- Type from `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`, `perf`, `style`. The archive-and-index commit is `docs`; task changes are normally delivered as their own typed commits, and when they ride along, the commit keeps the type of the substantive change.
+- Scope: one lowercase word naming the affected area — `progress` when the archive lives at the project root, otherwise the owning component or skill (for example `serial-debug`). Prefer separate commits over widening the scope; omit it only when no single area applies.
+- Subject: imperative, no trailing period, about 50 characters and never past 72. A docs-only archive commit uses the pattern `archive <short-topic> handoff`; a commit that also carries task changes describes that work instead.
+- Body: include only when the subject cannot carry the substance — what changed and why, one `- ` bullet per change, wrapped near 72 characters, with unfinished or unverified work described as such.
+- Trailers: the commit carrying the handoff ends with `Handoff: <project-relative archive path>`, so `git log --grep='^Handoff:'` finds handoff commits and each one links back to its archive. Mark breaking changes with `!` after the type/scope or a `BREAKING CHANGE:` footer. Add no other trailers unless the repository already uses them.
+- Use the repository's existing commit-message language (this repository: English), even when the handoff document itself is in another language.
 
 ## Return
 
