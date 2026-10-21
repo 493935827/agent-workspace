@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-21 16:20（Asia/Shanghai）
+最后更新：2026-10-21 16:26（Asia/Shanghai）
 
 ## 当前概况
 
@@ -10,9 +10,9 @@
 - serial-gui：标题栏「拖不动」三因已事件级复现（模态锁窗、GUI 线程枚举阻塞、QMenuBar 死区+最大化 startSystemMove 失效）；修复补丁已备待用户确认，证据与注入台见归档行。
 - agentctl：中文 help、全局入口与 16 个子命令已验证（README；新增 appconfig：应用配置 capture/deploy，CopyQ 已纳管，设置模板 tools/copyq）；待修：update 重链用拉取前旧配置（新增启用 skill 需手动 link）、test_discovery 4 项存量失败且污染真实 personal.yaml（已还原；2026-10-21 全量 pytest 再次复现并还原）——均待用户决策。
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release；CopyQ 配置+剪贴板历史已发布于私有 user-data-2026-10-21 Release（agent-software-packages，SHA-256 校验通过，可用 agentctl appconfig deploy 恢复）。
-- 开发配套：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档，按敏感数据保管。
+- 开发配套：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档，按敏感数据保管；zoxide v0.10.0 已装入用户 PATH 并接入工作区（目录库已种子，用法约定见 AGENTS.md）。
 - 安全边界：`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
-- 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）；3 个提交待推送（代理到 GitHub 的 SSL 握手失败，推送配方见 2026-10-21 归档）。
+- 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。（2026-10-21 16:26 核实：原 3 个推送积压提交已由用户推送，origin/master 已到 b117334。）
 - 下一步：按用户新需求推进；各环境 update 后刷新启用计数。
 
 ## 对话归档
