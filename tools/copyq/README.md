@@ -4,7 +4,7 @@ CopyQ 16.0.0 的**设置类配置模板**，来源为本机 `%APPDATA%\copyq` �
 
 | 文件 | 内容 |
 |---|---|
-| `copyq.ini` | 主设置：行为开关、快捷键、标签页（`&Clipboard` / `agent`）、内嵌主题 `[Theme]` |
+| `copyq.ini` | 主设置：行为开关、快捷键、标签页（`&Clipboard` / `agent`）、内嵌主题 `[Theme]`、条目列表最多显示 20 行（`itemtext\max_lines=20`，超出部分用预览/F7 查看） |
 | `copyq-commands.ini` | 8 个自定义命令：固定/取消固定、标签（重要）、`alt+c` 全局显示/隐藏 |
 
 ## 边界
