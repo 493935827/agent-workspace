@@ -34,7 +34,7 @@ Create `<project-root>/progress/` on demand. Save the handoff there, not in the 
 
 ## Maintain `progress/progress.md`
 
-After saving the handoff, update the index. This is the authoritative entry point for current progress, with a compact historical index of conversations.
+After saving the handoff, update the index. The file practices progressive disclosure in three layers: the current snapshot answers "where are we, what is next, what is blocked" at a glance; the archive table locates a past conversation; each linked handoff holds that conversation's details. Each layer points to the next and never absorbs it — new material sinks to the deepest layer that will hold it.
 
 Use this shape, adapting labels to the user's language:
 
@@ -56,17 +56,26 @@ Updated: YYYY-MM-DD HH:mm (timezone)
 | YYYY-MM-DD / short identity | One short sentence; label unverified work | [Topic](handoff-YYYYMMDD-HHMMSS-topic.md) |
 ```
 
-- Rewrite the current snapshot in place: aim for at most 10 short lines. Summarize overall milestones, not just the latest conversation. Omit unsupported percentages.
-- Keep one row per archived conversation, newest first, with a short accomplishment summary and a relative link to its handoff. Preserve older rows for archival lookup; update the same conversation's row instead of duplicating it.
-- Keep detailed reasoning, command output, task breakdowns, and evidence in the linked handoff or their existing source. The index should answer where the project stands and what to do next without opening a handoff.
+Snapshot rules — the snapshot is a whiteboard stating current state, not a log:
+
+- Keep at most 10 short lines, one line per theme: overall objective, current state of each active work stream, open defects worth remembering, blockers, next actions. Merge same-theme items into that theme's line; a conversation or a day never earns its own line.
+- Each line states the theme's current state in one sentence. Detailed reasoning, command output, task breakdowns, and evidence stay in the linked handoff or their existing source; link instead of retelling — a pointer to `README §12` outlasts a paraphrase of it.
+- Rewrite in place: replace the affected lines with the new state and drop whatever became stale, including details this conversation added earlier. When new content exceeds the budget, compress existing lines first; what still does not fit belongs in a handoff or an authoritative document, leaving at most a one-line pointer in the snapshot.
+- Summarize overall milestones, not just the latest conversation. Omit unsupported percentages.
+
+Archive rules:
+
+- Keep one row per archived conversation, newest first, with a one-sentence accomplishment summary and a relative link to its handoff. Preserve older rows for archival lookup; update the same conversation's row instead of duplicating it.
 - For a long index, read the snapshot first and search or read bounded archive rows only when locating a relevant conversation. Preserve unread history when editing rather than reconstructing or truncating the file.
 - Do not create parallel `status.md`, `docs/progress.md`, or a second handoff index. If such a file already exists, inspect it and reconcile relevant current state without silently deleting historical content or breaking references.
+
+If the file already outgrows this shape, compress it toward the budget: sink detail into this conversation's handoff, an existing archive row, or an authoritative document, and keep every fact reachable from some layer before dropping it.
 
 ## Establish the reading entry point
 
 Ensure the project-root `AGENTS.md` contains one concise navigation rule, updating an equivalent existing rule rather than duplicating it:
 
-> When continuing project work, first read the current snapshot in `progress/progress.md` if present and verify it against the relevant workspace state. Read linked handoffs only when their details are needed for the current task; search the conversation index rather than loading all archives. When material progress changes, keep the existing snapshot current. When the user requests a handoff, save the conversation archive and update its index row; preserve the handoff skill's manual invocation policy.
+> When continuing project work, first read the current snapshot in `progress/progress.md` if present and verify it against the relevant workspace state. The snapshot stays terse by design; get details by searching the conversation index and reading linked handoffs only as needed, not by padding the snapshot or loading all archives. When material progress changes, rewrite the affected snapshot lines in place — details belong in handoffs, not the snapshot. When the user requests a handoff, save the conversation archive and update its index row; preserve the handoff skill's manual invocation policy.
 
 If no project-root `AGENTS.md` exists, create a minimal one containing this rule. Preserve unrelated instructions and explicit invocation policies. Progress archives are persistent project records, not temporary files to clean up.
 
