@@ -118,6 +118,10 @@ class EffectiveConfig:
     def internet(self) -> bool:
         return bool((self.raw.get("network") or {}).get("internet", True))
 
+    @property
+    def app_configs(self) -> dict:
+        return self.raw.get("app_configs") or {}
+
 
 def build_effective(
     root: Path, environment: str | None, extra_local: dict | None = None

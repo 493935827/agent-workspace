@@ -276,7 +276,30 @@ agentctl unlink [--skill NAME]
 agentctl export [-o ZIP] [--with-wheels] [--with-npm] [--dry-run]
 agentctl import ZIP [--env ENV] [--dry-run] [--force]
 agentctl restore BACKUP_ZIP
+agentctl appconfig list | status [NAME] | capture NAME [--zip] | deploy NAME --from DIR|ZIP
 ```
+
+### 应用配置抓取与恢复（appconfig）
+
+把本机应用（如 CopyQ）的配置目录纳入同一套「一处维护、多环境重建」流程。
+应用在 `configs/common.yaml` 的 `app_configs:` 段声明（目标目录 + include/exclude
+glob），数据文件**只走私有渠道**：capture 输出到 `user-data/`（gitignored，
+永不进入 Git 或离线包），由用户上传到私有仓库 Release；deploy 接受目录或 ZIP，
+目标里已有的同名文件先备份到 `backups/appconfig/<应用名>/<时间戳>/`，绝不直接删除。
+
+```bash
+agentctl appconfig status copyq            # 声明的文件在目标目录的现状
+agentctl appconfig capture copyq --zip     # 抓取到 user-data/copyq/ 并打包
+agentctl appconfig deploy copyq --from user-data/copyq.zip --dry-run
+agentctl appconfig deploy copyq --from tools/copyq   # 仅设置模板（无历史数据）
+```
+
+CopyQ 迁移新电脑的完整流程：安装 CopyQ（公司/内网交付包已含安装器）→
+从私有仓库 `agent-software-packages` 的 user-data Release 下载
+`copyq-config-*.zip` 与 `SHA256SUMS.txt` 并校验 → `agentctl appconfig deploy
+copyq --from <下载的 zip>` → 重启 CopyQ。只想恢复设置不要历史时，用仓库内
+`tools/copyq/` 模板（copyq.ini + copyq-commands.ini，不含剪贴板记录）。
+capture 前建议退出 CopyQ：运行中抓取可能拿到尚未落盘的旧状态。
 
 ## 安全设计要点
 

@@ -76,6 +76,27 @@ secrets:
 network:
   internet: true
 
+# 应用配置：声明本机应用的配置目录与备份范围。
+# capture 抓取到 user-data/（gitignored）走私有渠道；deploy 从目录/ZIP 恢复，
+# 覆盖前自动备份。剪贴板历史等个人数据永不进入 Git / 离线包 / 公开仓库。
+app_configs:
+  copyq:
+    description: CopyQ 剪贴板管理器（配置与历史；主题内嵌于 copyq.ini [Theme]）
+    target: "%APPDATA%/copyq"
+    process: copyq.exe
+    include:
+      - copyq.ini
+      - copyq-commands.ini
+      - copyq_tabs.ini
+      - copyq-filter.ini
+      - copyq_geometry.ini
+      - copyq_tab_*.dat
+    exclude:
+      - "*.bak"
+      - "*.bak.*"
+      - "*.new.bak"
+      - "*.log"
+
 # resources: 期望清单，供 agentctl scan/diff 与基线对比
 # skills = vercel-labs/skills CLI；本机 npm ls -g 不输出 resolved 来源字段，
 # adopt 按设计拒绝猜测来源，此处为已知 registry 来源的手动登记

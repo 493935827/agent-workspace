@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from agentctl import __version__
+from agentctl import appconfig as appconfig_mod
 from agentctl import bundle as bundle_mod
 from agentctl import config as config_mod
 from agentctl import environment as env_mod
@@ -23,6 +24,7 @@ ERRORS = (
     gitops.GitError,
     bundle_mod.BundleError,
     LinkError,
+    appconfig_mod.AppConfigError,
 )
 
 
@@ -120,6 +122,47 @@ def build_parser() -> argparse.ArgumentParser:
                         epilog="示例: agentctl restore backups/<导入前备份>.zip\n此命令不用于恢复 adopt 产生的配置备份。",
                         formatter_class=argparse.RawDescriptionHelpFormatter)
     rp.add_argument("backup", metavar="BACKUP_ZIP", help="先前 import 创建的 backups/ 下备份 ZIP 路径")
+
+    ac = sub.add_parser("appconfig", help="抓取或恢复本机应用配置（如 CopyQ）",
+                        description="按 configs 中 app_configs 声明，抓取本机应用配置供私有渠道备份，"
+                                    "或从目录/ZIP 恢复（覆盖前自动备份）。",
+                        epilog="示例: agentctl appconfig status copyq\n"
+                               "      agentctl appconfig capture copyq --zip\n"
+                               "      agentctl appconfig deploy copyq --from user-data/copyq/copyq-config.zip",
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ac_sub = ac.add_subparsers(dest="appconfig_command", metavar="ACTION")
+    ac_sub.required = True
+
+    al = ac_sub.add_parser("list", help="列出声明的应用配置",
+                           description="显示 app_configs 中声明的全部应用及其目标目录。",
+                           epilog="示例: agentctl appconfig list")
+    ast = ac_sub.add_parser("status", help="对比声明文件与目标目录现状",
+                            description="检查目标目录里声明 pattern 能匹配到的文件；全部缺失或目录缺失时报 FAIL。",
+                            epilog="示例: agentctl appconfig status copyq\n不指定应用名时检查全部声明。")
+    ast.add_argument("name", metavar="NAME", nargs="?", default=None,
+                     help="应用名，如 copyq；缺省检查全部")
+
+    acap = ac_sub.add_parser("capture", help="抓取应用配置到 user-data/ 供私有渠道备份",
+                             description="把目标目录中声明的配置文件复制到输出目录，并生成 manifest.json 与 SHA256SUMS.txt；"
+                                         "这些文件含个人数据，只走私有渠道，不入 Git 或离线包。",
+                             epilog="示例: agentctl appconfig capture copyq --zip --dry-run\n"
+                                    "默认输出 user-data/<应用名>/；--zip 额外生成同名 ZIP + SHA256SUMS.txt。")
+    acap.add_argument("name", metavar="NAME", help="应用名，如 copyq")
+    acap.add_argument("--out", metavar="DIR", default=None,
+                      help="输出目录；默认 <工作区>/user-data/<应用名>")
+    acap.add_argument("--zip", action="store_true",
+                      help="抓取后额外打包 ZIP 并生成 SHA256SUMS.txt")
+    acap.add_argument("--dry-run", action="store_true", help="预览将抓取的文件，不写入")
+
+    ade = ac_sub.add_parser("deploy", help="从目录或 ZIP 恢复应用配置（先备份再覆盖）",
+                            description="把目录或 ZIP 中匹配声明的文件恢复到目标目录；目标中已存在的同名文件"
+                                        "先移入 backups/appconfig/<应用名>/<时间戳>/，绝不直接删除。",
+                            epilog="示例: agentctl appconfig deploy copyq --from user-data/copyq/copyq-config.zip --dry-run\n"
+                                   "支持 ZIP 内含单层顶层目录（如 copyq/...）的常见打包结构。")
+    ade.add_argument("name", metavar="NAME", help="应用名，如 copyq")
+    ade.add_argument("--from", dest="from_src", metavar="DIR|ZIP", required=True,
+                     help="配置来源：抓取输出目录或其 ZIP")
+    ade.add_argument("--dry-run", action="store_true", help="只显示部署计划，不改动文件")
 
     discovery.add_parsers(sub)
     return p
@@ -268,6 +311,15 @@ def cmd_restore(root: Path, args: argparse.Namespace) -> int:
     return bundle_mod.restore_backup(root, args.backup)
 
 
+def cmd_appconfig(root: Path, args: argparse.Namespace) -> int:
+    try:
+        env, _ = _resolve_env(root, args)
+    except env_mod.EnvError:
+        env = None
+    cfg = config_mod.build_effective(root, env)
+    return appconfig_mod.run(root, cfg, args)
+
+
 HANDLERS = {
     "status": cmd_status,
     "version": cmd_version,
@@ -279,6 +331,7 @@ HANDLERS = {
     "export": cmd_export,
     "import": cmd_import,
     "restore": cmd_restore,
+    "appconfig": cmd_appconfig,
     **{name: discovery.run for name in discovery.COMMANDS},
 }
 

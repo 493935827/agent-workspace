@@ -2,6 +2,7 @@
 .env
 local.yaml
 .agentctl/
+user-data/
 
 # --- Generated artifacts ---
 backups/
