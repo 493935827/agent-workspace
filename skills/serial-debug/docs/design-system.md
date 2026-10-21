@@ -1,19 +1,20 @@
 # Serial Workbench 统一风格（Design System）
 
-最后更新：2026-10-13 · 适用于 `scripts/serial_gui_qt.py` 工作台与 `scripts/serial_gui_qt_prototype.py` 视觉外壳
+最后更新：2026-10-21 · 适用于 `scripts/serial_gui_qt.py` 工作台与 `scripts/serial_gui_qt_prototype.py` 视觉外壳
 
 ## 一句话定位
 
-**Fluent 2 深色优先的开发者终端**：紧凑三栏工作台、单一蓝色强调、等宽日志区、语义化明暗双主题、无装饰动效。
+**深色优先的开发者终端**：紧凑三栏工作台、单一蓝色强调、等宽日志区、语义化明暗双主题、无装饰动效。
 
-决策依据：产品类型为开发者工具 / 串口控制台，风格库匹配结果为 Dark Mode + Minimalism（明确列出 "Light mode default" 为反模式）；视觉语言沿用 Microsoft Fluent 2，token 体系直接映射 Fluent 官方别名（`colorBrandBackground` 等）。
+决策依据：产品类型为开发者工具 / 串口控制台，风格库匹配结果为 Dark Mode + Minimalism（明确列出 "Light mode default" 为反模式）。**深色主题以 VS Code Dark Modern 为基准**（chrome `#181818` / 编辑区 `#1F1F1F` / 文本 `#CCCCCC`·`#9D9D9D` / 输入框 `#313131`+边框 `#3C3C3C` / 强调 `#0078D4` / 文本选区 `#264F78`，取自 microsoft/vscode `dark_modern.json`）；浅色主题沿用 Fluent 2 官方 token。语义别名体系不变，代码与 QSS 零改动即可换肤。
 
 ## 主题与颜色
 
 - **唯一事实源**：`scripts/qt-preview-tokens.json`。代码与 QSS 只允许使用语义别名（`text_primary`、`brand_background_subtle`…），禁止组件内写裸 hex。
 - **深色优先**：首次启动默认深色；用户选择持久化到 `serial_qt_settings.json` 的 `dark` 字段，之后以用户选择为准。
 - **对比度红线**：正文级文本对背景 ≥ 4.5:1（WCAG AA）；禁用文本为豁免项，保底 ≥ 2.5:1。守卫测试 `tests/test_ui_tokens.py` 逐对校验，token 改动必须先过它。
-- 品牌色回归 Fluent 官方值：浅色 `brand_background`/`brand_foreground` = `#0f6cbd`（白字 5.38:1）；深色 `danger_foreground` = `#e8707a`（4.87:1）。
+- 品牌色：浅色 `brand_background`/`brand_foreground` = Fluent `#0f6cbd`（白字 5.38:1）；深色 `brand_background` = VS Code `#0078d4`（白字 4.53:1），深色 `danger_foreground` = `#f85149`（4.74:1），深色 `warning_foreground` = `#cca700`（7.13:1）。
+- 深色层级约定（VS Code 同款）：侧栏/标签栏/状态栏 `#181818` 比日志画布 `#1F1F1F` 更暗；输入类控件 `#313131` 明显浮起；分隔线 `#2B2B2B` 极克制；文本选区 `#264F78` + `#CCCCCC`（编辑器选区，不是按钮蓝）；菜单选中 = 实心 `#0078d4` + 白字。
 - 状态语义四色（info/success/warning/danger）各含 background / background_strong / foreground / border 四件套；**状态永远不许只用颜色表达**，必须配文字或图标（如会话状态 = 彩点 + 文字 + 图标三重编码）。
 
 ## 字体
@@ -35,7 +36,7 @@
 ## 状态与交互
 
 - 每个可交互控件覆盖 rest / hover / pressed / focus / checked / disabled 状态（见生成 QSS）。
-- **焦点可见**：`:focus` 使用 `focus_border`（浅色纯黑 / 深色纯白），不依赖 hover。
+- **焦点可见**：`:focus` 使用 `focus_border`（浅色纯黑 / 深色 `#0078d4`，即 VS Code focusBorder），不依赖 hover。
 - **无效输入**：对话框校验失败使用行内红色提示（`Workbench.inline_form_error`），保留已输入值、对话框不关闭；错误文本用 `role="danger"` 标签。
 - **状态栏错误**：`report_error` 在状态栏以 danger 色保持 8 秒（防止被 30ms 轮询覆盖），同时写入日志 ERROR 记录。
 - 键盘优先：Tab 仅在命中宏时用于展开，否则保持焦点遍历；快捷键全集见「查看」菜单。

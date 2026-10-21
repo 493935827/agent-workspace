@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "title": "Qt-facing semantic aliases for Microsoft Fluent 2 Web tokens",
+  "title": "Qt-facing semantic aliases: light from Fluent 2 web tokens, dark re-based on VS Code Dark Modern",
   "source": {
     "title": "Microsoft Fluent UI v9 resolved web theme tokens",
     "package": "@fluentui/react-theme",
@@ -15,7 +15,16 @@
       "packages/tokens/src/alias/lightColor.ts",
       "packages/tokens/src/alias/darkColor.ts"
     ],
-    "note": "Resolved values from the latest published official @fluentui/react-theme package available on the extraction date; cross-checked against the current official GitHub source generation paths."
+    "note": "Light values resolved from the official @fluentui/react-theme package; dark values re-based on VS Code Dark Modern for a near-black chrome (#181818) / editor (#1F1F1F) hierarchy with soft #CCCCCC text and #0078D4 accent (button.background, focusBorder). Semantic alias names are unchanged so QSS/code need no renames.",
+    "darkThemeSource": {
+      "title": "VS Code Dark Modern",
+      "package": "microsoft/vscode",
+      "officialSourcePaths": [
+        "extensions/theme-defaults/themes/dark_modern.json",
+        "extensions/theme-defaults/themes/dark_plus.json"
+      ],
+      "fetchedAt": "2026-10-21"
+    }
   },
   "usage": "Consume semantic aliases in application code and generated QSS. Do not copy resolved values into widgets.",
   "aliases": {
@@ -28,39 +37,39 @@
       },
       "canvas_background": {
         "token": "colorNeutralBackground1",
-        "description": "Primary content canvas. Preview light override derived from the user reference.",
+        "description": "Primary content canvas. Dark = VS Code editor.background; preview light override derived from the user reference.",
         "light": "#ffffff",
-        "dark": "#292929"
+        "dark": "#1f1f1f"
       },
       "surface_background": {
         "token": "colorNeutralBackground1",
         "description": "Default control and surface background.",
         "light": "#ffffff",
-        "dark": "#292929"
+        "dark": "#313131"
       },
       "surface_background_hover": {
         "token": "colorNeutralBackground1Hover",
         "description": "Default surface hover.",
         "light": "#f5f5f5",
-        "dark": "#3d3d3d"
+        "dark": "#3c3c3c"
       },
       "surface_background_pressed": {
         "token": "colorNeutralBackground1Pressed",
         "description": "Default surface pressed state.",
         "light": "#e0e0e0",
-        "dark": "#1f1f1f"
+        "dark": "#242424"
       },
       "surface_background_selected": {
         "token": "colorNeutralBackground1Selected",
         "description": "Default selected surface.",
         "light": "#ebebeb",
-        "dark": "#383838"
+        "dark": "#37373d"
       },
       "surface_secondary": {
         "token": "colorNeutralBackground2",
-        "description": "Sidebar and secondary surface. Preview light override derived from the user reference.",
+        "description": "Sidebar and secondary surface. Dark = VS Code sideBar/statusBar background; preview light override from the user reference.",
         "light": "#f3f5f8",
-        "dark": "#1f1f1f"
+        "dark": "#181818"
       },
       "surface_tertiary": {
         "token": "colorNeutralBackground3",
@@ -72,7 +81,7 @@
         "token": "colorNeutralBackground4",
         "description": "Floating/elevated surface when a distinct layer is needed.",
         "light": "#f0f0f0",
-        "dark": "#0a0a0a"
+        "dark": "#202020"
       },
       "surface_disabled": {
         "token": "colorNeutralBackgroundDisabled",
@@ -84,49 +93,49 @@
         "token": "colorNeutralCardBackground",
         "description": "Card background.",
         "light": "#fafafa",
-        "dark": "#333333"
+        "dark": "#2b2b2b"
       },
       "card_background_hover": {
         "token": "colorNeutralCardBackgroundHover",
         "description": "Interactive card hover.",
         "light": "#ffffff",
-        "dark": "#3d3d3d"
+        "dark": "#313131"
       },
       "card_background_pressed": {
         "token": "colorNeutralCardBackgroundPressed",
         "description": "Interactive card pressed.",
         "light": "#f5f5f5",
-        "dark": "#2e2e2e"
+        "dark": "#262626"
       },
       "card_background_selected": {
         "token": "colorNeutralCardBackgroundSelected",
         "description": "Interactive card selected.",
         "light": "#ebebeb",
-        "dark": "#383838"
+        "dark": "#37373d"
       },
       "text_primary": {
         "token": "colorNeutralForeground1",
-        "description": "Primary text and important icons. Preview light override derived from the user reference.",
+        "description": "Primary text and important icons. Dark = VS Code foreground #CCCCCC (soft white); preview light override from the user reference.",
         "light": "#273449",
-        "dark": "#ffffff"
+        "dark": "#cccccc"
       },
       "text_secondary": {
         "token": "colorNeutralForeground2",
-        "description": "Secondary text and ordinary icons. Light value passes 4.5:1 on canvas and surface_secondary.",
+        "description": "Secondary text and ordinary icons. Dark = VS Code descriptionForeground; light passes 4.5:1 on canvas and surface_secondary.",
         "light": "#5b6b82",
-        "dark": "#d6d6d6"
+        "dark": "#9d9d9d"
       },
       "text_tertiary": {
         "token": "colorNeutralForeground3",
-        "description": "Hints, placeholders, and tertiary labels.",
+        "description": "Hints, placeholders, and tertiary labels. Dark = VS Code input.placeholderForeground (passes 4.5:1 on canvas).",
         "light": "#616161",
-        "dark": "#adadad"
+        "dark": "#989898"
       },
       "text_quaternary": {
         "token": "colorNeutralForeground4",
         "description": "Very subtle icons and labels.",
         "light": "#707070",
-        "dark": "#999999"
+        "dark": "#868686"
       },
       "text_disabled": {
         "token": "colorNeutralForegroundDisabled",
@@ -150,61 +159,61 @@
         "token": "colorBrandForegroundLink",
         "description": "Link at rest.",
         "light": "#115ea3",
-        "dark": "#479ef5"
+        "dark": "#4daafc"
       },
       "link_hover": {
         "token": "colorBrandForegroundLinkHover",
         "description": "Link hover.",
         "light": "#0f548c",
-        "dark": "#62abf5"
+        "dark": "#6cb6ff"
       },
       "link_pressed": {
         "token": "colorBrandForegroundLinkPressed",
         "description": "Link pressed.",
         "light": "#0c3b5e",
-        "dark": "#2886de"
+        "dark": "#4daafc"
       },
       "border_primary": {
         "token": "colorNeutralStroke1",
-        "description": "Primary control border. Preview light override derived from the user reference.",
+        "description": "Primary control border. Dark = VS Code input/dropdown border; preview light override derived from the user reference.",
         "light": "#d5deea",
-        "dark": "#666666"
+        "dark": "#3c3c3c"
       },
       "border_hover": {
         "token": "colorNeutralStroke1Hover",
         "description": "Primary control border hover.",
         "light": "#c7c7c7",
-        "dark": "#757575"
+        "dark": "#454545"
       },
       "border_pressed": {
         "token": "colorNeutralStroke1Pressed",
         "description": "Primary control border pressed.",
         "light": "#b3b3b3",
-        "dark": "#6b6b6b"
+        "dark": "#3c3c3c"
       },
       "border_selected": {
         "token": "colorNeutralStroke1Selected",
         "description": "Primary control border selected.",
         "light": "#bdbdbd",
-        "dark": "#707070"
+        "dark": "#454545"
       },
       "border_subtle": {
         "token": "colorNeutralStroke2",
-        "description": "Subtle divider or container border. Preview light override derived from the user reference.",
+        "description": "Subtle divider or container border. Dark = VS Code sideBar/panel border; preview light override derived from the user reference.",
         "light": "#e3e9f1",
-        "dark": "#525252"
+        "dark": "#2b2b2b"
       },
       "border_tertiary": {
         "token": "colorNeutralStroke3",
         "description": "Very subtle separator.",
         "light": "#f0f0f0",
-        "dark": "#3d3d3d"
+        "dark": "#262626"
       },
       "border_disabled": {
         "token": "colorNeutralStrokeDisabled",
         "description": "Disabled border.",
         "light": "#e0e0e0",
-        "dark": "#424242"
+        "dark": "#3c3c3c"
       },
       "border_accessible": {
         "token": "colorNeutralStrokeAccessible",
@@ -214,9 +223,9 @@
       },
       "focus_border": {
         "token": "colorStrokeFocus2",
-        "description": "Primary visible focus stroke.",
+        "description": "Primary visible focus stroke. Dark = VS Code focusBorder #0078D4. Light stays pure black.",
         "light": "#000000",
-        "dark": "#ffffff"
+        "dark": "#0078d4"
       },
       "focus_inner": {
         "token": "colorStrokeFocus1",
@@ -234,67 +243,67 @@
         "token": "colorSubtleBackgroundHover",
         "description": "Subtle/ghost hover background.",
         "light": "#f5f5f5",
-        "dark": "#383838"
+        "dark": "#2a2d2e"
       },
       "subtle_pressed": {
         "token": "colorSubtleBackgroundPressed",
         "description": "Subtle/ghost pressed background.",
         "light": "#e0e0e0",
-        "dark": "#2e2e2e"
+        "dark": "#37373d"
       },
       "subtle_selected": {
         "token": "colorSubtleBackgroundSelected",
         "description": "Subtle/ghost selected background.",
         "light": "#ebebeb",
-        "dark": "#333333"
+        "dark": "#37373d"
       },
       "brand_background": {
         "token": "colorBrandBackground",
-        "description": "Primary brand action background. Official Fluent value; white text passes 4.5:1.",
+        "description": "Primary brand action background. Dark = VS Code button.background #0078D4; white text passes 4.5:1.",
         "light": "#0f6cbd",
-        "dark": "#115ea3"
+        "dark": "#0078d4"
       },
       "brand_background_hover": {
         "token": "colorBrandBackgroundHover",
         "description": "Primary brand hover.",
         "light": "#115ea3",
-        "dark": "#0f6cbd"
+        "dark": "#026ec1"
       },
       "brand_background_pressed": {
         "token": "colorBrandBackgroundPressed",
         "description": "Primary brand pressed.",
         "light": "#0c3b5e",
-        "dark": "#0c3b5e"
+        "dark": "#025ca6"
       },
       "brand_background_selected": {
         "token": "colorBrandBackgroundSelected",
         "description": "Primary brand selected.",
         "light": "#0f548c",
-        "dark": "#0f548c"
+        "dark": "#025ca6"
       },
       "brand_background_subtle": {
         "token": "colorBrandBackground2",
-        "description": "Light/subtle brand selection surface. Preview light override derived from the user reference.",
+        "description": "Light/subtle brand selection surface. Dark = VS Code list.activeSelectionBackground; preview light override from the user reference.",
         "light": "#eaf5ff",
-        "dark": "#082338"
+        "dark": "#04395e"
       },
       "brand_background_subtle_hover": {
         "token": "colorBrandBackground2Hover",
         "description": "Subtle brand surface hover.",
         "light": "#cfe4fa",
-        "dark": "#0c3b5e"
+        "dark": "#062f4a"
       },
       "brand_background_subtle_pressed": {
         "token": "colorBrandBackground2Pressed",
         "description": "Subtle brand surface pressed.",
         "light": "#96c6fa",
-        "dark": "#061724"
+        "dark": "#032b44"
       },
       "brand_foreground": {
         "token": "colorBrandForeground1",
-        "description": "Primary brand text/icon. Official Fluent value; passes 4.5:1 on light canvas.",
+        "description": "Primary brand text/icon. Dark = VS Code textLink.foreground; official light value passes 4.5:1 on light canvas.",
         "light": "#0f6cbd",
-        "dark": "#479ef5"
+        "dark": "#4daafc"
       },
       "brand_foreground_secondary": {
         "token": "colorBrandForeground2",
@@ -306,49 +315,49 @@
         "token": "colorBrandStroke1",
         "description": "Primary brand border.",
         "light": "#0f6cbd",
-        "dark": "#479ef5"
+        "dark": "#0078d4"
       },
       "brand_border_subtle": {
         "token": "colorBrandStroke2",
         "description": "Subtle brand border.",
         "light": "#b4d6fa",
-        "dark": "#0e4775"
+        "dark": "#2488db"
       },
       "selection_strong_background": {
         "token": "colorBrandBackground",
-        "description": "Strong selection or active action background.",
+        "description": "Text-selection background. Dark = VS Code editor.selectionBackground #264F78.",
         "light": "#0f6cbd",
-        "dark": "#115ea3"
+        "dark": "#264f78"
       },
       "selection_strong_foreground": {
         "token": "colorNeutralForegroundOnBrand",
         "description": "Foreground on strong selection.",
         "light": "#ffffff",
-        "dark": "#ffffff"
+        "dark": "#cccccc"
       },
       "selection_subtle_background": {
         "token": "colorBrandBackground2",
         "description": "Data row or navigation selection surface.",
         "light": "#ebf3fc",
-        "dark": "#082338"
+        "dark": "#04395e"
       },
       "selection_subtle_foreground": {
         "token": "colorNeutralForeground1",
         "description": "Foreground on subtle selection.",
         "light": "#242424",
-        "dark": "#ffffff"
+        "dark": "#cccccc"
       },
       "tooltip_background": {
         "token": "colorNeutralBackgroundInverted",
-        "description": "Tooltip background.",
+        "description": "Tooltip background. Dark = VS Code hover-widget dark; light stays Fluent inverted.",
         "light": "#292929",
-        "dark": "#ffffff"
+        "dark": "#202020"
       },
       "tooltip_foreground": {
         "token": "colorNeutralForegroundInverted",
         "description": "Tooltip foreground.",
         "light": "#ffffff",
-        "dark": "#242424"
+        "dark": "#cccccc"
       },
       "overlay_background": {
         "token": "colorBackgroundOverlay",
@@ -360,37 +369,37 @@
         "token": "colorScrollbarOverlay",
         "description": "Scrollbar thumb/overlay.",
         "light": "rgba(0, 0, 0, 0.5)",
-        "dark": "rgba(255, 255, 255, 0.6)"
+        "dark": "rgba(121, 121, 121, 0.4)"
       },
       "success_background": {
         "token": "colorStatusSuccessBackground1",
         "description": "Subtle success background.",
         "light": "#f1faf1",
-        "dark": "#052505"
+        "dark": "#12291b"
       },
       "success_background_strong": {
         "token": "colorStatusSuccessBackground3",
         "description": "Strong success background.",
         "light": "#107c10",
-        "dark": "#107c10"
+        "dark": "#2ea043"
       },
       "success_foreground": {
         "token": "colorStatusSuccessForeground1",
-        "description": "Success foreground.",
+        "description": "Success foreground. Dark value passes 4.5:1 on dark canvas.",
         "light": "#0e700e",
-        "dark": "#54b054"
+        "dark": "#3fb950"
       },
       "success_foreground_inverted": {
         "token": "colorStatusSuccessForegroundInverted",
         "description": "Success foreground on dark/inverted surfaces.",
         "light": "#54b054",
-        "dark": "#0e700e"
+        "dark": "#2ea043"
       },
       "success_border": {
         "token": "colorStatusSuccessBorder1",
         "description": "Success border.",
         "light": "#9fd89f",
-        "dark": "#107c10"
+        "dark": "#2ea043"
       },
       "warning_background": {
         "token": "colorStatusWarningBackground1",
@@ -406,9 +415,9 @@
       },
       "warning_foreground": {
         "token": "colorStatusWarningForeground1",
-        "description": "Warning foreground.",
+        "description": "Warning foreground. Dark = VS Code warning yellow #CCA700; passes 4.5:1 on dark canvas and warning background.",
         "light": "#bc4b09",
-        "dark": "#faa06b"
+        "dark": "#cca700"
       },
       "warning_foreground_inverted": {
         "token": "colorStatusWarningForegroundInverted",
@@ -420,7 +429,7 @@
         "token": "colorStatusWarningBorder1",
         "description": "Warning border.",
         "light": "#fdcfb4",
-        "dark": "#f7630c"
+        "dark": "#cca700"
       },
       "danger_background": {
         "token": "colorStatusDangerBackground1",
@@ -448,9 +457,9 @@
       },
       "danger_foreground": {
         "token": "colorStatusDangerForeground1",
-        "description": "Danger foreground. Dark value passes 4.5:1 on dark canvas.",
+        "description": "Danger foreground. Dark = VS Code errorForeground #F85149; passes 4.5:1 on dark canvas.",
         "light": "#b10e1c",
-        "dark": "#e8707a"
+        "dark": "#f85149"
       },
       "danger_foreground_inverted": {
         "token": "colorStatusDangerForegroundInverted",
@@ -462,25 +471,25 @@
         "token": "colorStatusDangerBorder1",
         "description": "Danger border.",
         "light": "#eeacb2",
-        "dark": "#c50f1f"
+        "dark": "#f85149"
       },
       "info_background": {
         "token": "colorBrandBackground2",
         "description": "Informational/subtle brand background.",
         "light": "#ebf3fc",
-        "dark": "#082338"
+        "dark": "#04395e"
       },
       "info_foreground": {
         "token": "colorBrandForeground1",
         "description": "Informational foreground.",
         "light": "#0f6cbd",
-        "dark": "#479ef5"
+        "dark": "#4daafc"
       },
       "info_border": {
         "token": "colorBrandStroke2",
         "description": "Informational border.",
         "light": "#b4d6fa",
-        "dark": "#0e4775"
+        "dark": "#2488db"
       }
     },
     "typography": {

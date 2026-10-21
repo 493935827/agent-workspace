@@ -1618,7 +1618,8 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
             QToolButton[filterChip="true"]:checked {{ background: {c['brand_background_subtle']}; color: {c['brand_foreground']}; border-color: {c['brand_border_subtle']}; }}
             QToolButton[logAction="true"]:checked {{ background: {c['brand_background_subtle']}; color: {c['brand_foreground']}; border-color: {c['brand_border_subtle']}; }}
             QToolButton[pauseAction="true"]:checked {{ background: {c['warning_background']}; color: {c['warning_foreground']}; border-color: {c['warning_border']}; }}
-            QLineEdit, QPlainTextEdit {{ background: {c['canvas_background']}; border: 1px solid {c['border_primary']}; border-radius: 4px; padding: 4px; selection-background-color: {c['brand_background']}; selection-color: {c['text_on_brand']}; }}
+            QLineEdit {{ background: {c['surface_background']}; border: 1px solid {c['border_primary']}; border-radius: 4px; padding: 4px; selection-background-color: {c['selection_strong_background']}; selection-color: {c['selection_strong_foreground']}; }}
+            QPlainTextEdit {{ background: {c['canvas_background']}; border: 1px solid {c['border_primary']}; border-radius: 4px; padding: 4px; selection-background-color: {c['selection_strong_background']}; selection-color: {c['selection_strong_foreground']}; }}
             QPlainTextEdit {{ font-family: Consolas; font-size: 8pt; padding: 4px 2px; }}
             QLineEdit:disabled {{ color: {c['text_disabled']}; background: {c['surface_disabled']}; }}
             QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, QPlainTextEdit:focus, QListWidget:focus {{ border: 1px solid {c['focus_border']}; }}
@@ -1632,14 +1633,17 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
             QSplitter::handle {{ background: {c['border_subtle']}; }}
             QMenuBar {{ background: transparent; font-size: 6.75pt; }}
             QMenuBar::item {{ padding: 4px 6px; }}
-            QMenuBar::item:selected, QMenu::item:selected {{ background: {c['brand_background_subtle']}; color: {c['text_primary']}; }}
-            QTabBar::tab {{ background: transparent; padding: 7px 9px; border: 1px solid transparent; font-size: 6.75pt; }}
-            QTabBar::tab:selected {{ background: {c['canvas_background']}; border-top: 2px solid {c['brand_background']}; }}
+            QMenuBar::item:selected {{ background: {c['subtle_hover']}; }}
+            QMenu {{ background: {c['canvas_background']}; border: 1px solid {c['border_subtle']}; }}
+            QMenu::item:selected {{ background: {c['brand_background']}; color: {c['text_on_brand']}; }}
+            QMenu::item:selected:disabled {{ background: {c['subtle_hover']}; color: {c['text_disabled']}; }}
+            QTabBar::tab {{ background: transparent; padding: 7px 9px; border: 1px solid transparent; font-size: 6.75pt; color: {c['text_secondary']}; }}
+            QTabBar::tab:selected {{ background: {c['canvas_background']}; border-top: 2px solid {c['brand_background']}; color: {c['text_primary']}; }}
             QTabBar::tab:hover {{ background: {c['subtle_hover']}; }}
             #inspector QTabBar::tab:selected {{ border-top: none; border-bottom: 2px solid {c['brand_background']}; }}
             QTabWidget::pane {{ border: 1px solid {c['border_subtle']}; }}
             QScrollBar:vertical {{ background: {c['surface_secondary']}; width: 10px; margin: 0; }}
-            QScrollBar::handle:vertical {{ background: {c['border_primary']}; min-height: 24px; border-radius: 4px; }}
+            QScrollBar::handle:vertical {{ background: {c['border_hover']}; min-height: 24px; border-radius: 4px; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
             #status QComboBox {{ background: transparent; border: 1px solid transparent; padding: 1px 2px; min-height: 14px; font-size: 6.5pt; color: {c['text_secondary']}; }}
             #status QComboBox:hover {{ background: {c['subtle_hover']}; border-color: {c['border_subtle']}; }}
