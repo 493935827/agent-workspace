@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-21 17:01（Asia/Shanghai）
+最后更新：2026-10-21 17:10（Asia/Shanghai）
 
 ## 当前概况
 
@@ -10,15 +10,17 @@
 - serial-gui：标题栏「拖不动」三因已事件级复现（模态锁窗、GUI 线程枚举阻塞、QMenuBar 死区+最大化 startSystemMove 失效）；修复补丁已备待用户确认，证据与注入台见归档行。
 - agentctl：中文 help、全局入口与 16 个子命令已验证（README；appconfig：应用配置 capture/deploy，CopyQ 已纳管，设置模板 tools/copyq；machine_setup：bootstrap 自动配置机器级环境——AGENT_WORKSPACE_ROOT/用户 PATH/PowerShell 执行策略与 profile 标记块，doctor machine:* 查漂移，本机部署验证）；待修：update 重链用拉取前旧配置（新增启用 skill 需手动 link）、test_discovery 4 项存量失败且污染真实 personal.yaml（已还原；2026-10-21 全量 pytest 再次复现并还原）——均待用户决策。
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release；CopyQ 配置+剪贴板历史已发布于私有 user-data-2026-10-21 Release（agent-software-packages，SHA-256 校验通过，可用 agentctl appconfig deploy 恢复）；本机实装 CopyQ 3.12.0（交付包内为 16.0.0 安装器，升级未做），条目 20 行截断已配置生效。
-- 开发配套：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档，按敏感数据保管；zoxide v0.10.0 已装入用户 PATH 并接入工作区（目录库已种子，用法约定见 AGENTS.md）。
-- 安全边界：`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
-- 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。（2026-10-21 16:26 核实：原 3 个推送积压提交已由用户推送，origin/master 已到 b117334。）
-- 下一步：按用户新需求推进；各环境 update 后刷新启用计数。
+- 开发配套与安全边界：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档按敏感数据保管；zoxide v0.10.0 已接入（用法见 AGENTS.md）；`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
+- CLI-Anything：cli-hub v0.4.1 已入用户 PATH（uv tool 安装）；cli-hub-meta-skill 与 7 阶段生成器 skill（cli-anything）已装 .agents\skills 并入会话目录生效；装 CLI/生成 harness 均未实战。
+- 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。
+- 下一步：按用户新需求推进；各环境 update 后刷新启用计数；CLI-Anything 待指定目标软件后实战（cli-hub 装现成 CLI 或生成器造 harness）。
 
 ## 对话归档
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-21 / CopyQ 配置纳管与 20 行截断（`session-0c3bbc348b06`） | agentctl 新增 appconfig 子命令（capture/deploy，备份优先），CopyQ 配置+历史备份发布于私有 user-data-2026-10-21 Release 并两轮刷新校验；实机配置条目 20 行截断生效、预览默认关（F7 查看超长条目）；发现本机实装 3.12.0 | [CopyQ 配置纳管与 20 行截断](handoff-20261021-165500-copyq-config-appconfig.md) |
+| 2026-10-21 / CLI-Anything 装机（`session-ce3ae958b0b0`） | 调研并装机：cli-hub v0.4.1（uv tool 入 PATH）、cli-hub-meta-skill、7 阶段生成器 skill（官方 install.ps1 组装 24 文件）；装 CLI/生成未实战 | [CLI-Anything 调研与装机](handoff-20261021-170157-cli-anything-install.md) |
 | 2026-10-21 / serial-gui 拖动诊断（`session-86feed6014c3`） | 鼠标注入台把「窗口有时拖不动」复现到事件级：菜单栏 MinimumExpanding 死区、最大化 startSystemMove 失效、模态锁窗与 comports 阻塞；修复未实施 | [serial-gui 标题栏拖动诊断](handoff-20261021-153400-serial-gui-titlebar-drag.md) |
 | 2026-10-21 / progress 渐进式披露改版 | 概况改为每主题一行三层披露，handoff/project-structure/AGENTS.md 约定同步，progress.md 压缩为 9 行示范；提交未推送 | [progress 约定渐进式披露改版](handoff-20261021-105633-progressive-disclosure-progress-rules.md) |
 | 2026-10-16 / vercel skills CLI 集成 | 安装验收 skills CLI v1.7.2 并入库 find-skills 技能；发现 test_discovery 存量失败与真实配置污染缺陷（已还原） | [vercel-labs/skills CLI 集成](handoff-20261016-105816-vercel-skills-cli.md) |
