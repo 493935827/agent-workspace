@@ -1,23 +1,24 @@
 # 项目进度
 
-最后更新：2026-10-21 10:50（Asia/Shanghai）
+最后更新：2026-10-21 11:00（Asia/Shanghai）
 
 ## 当前概况
 
 - 当前目标：维护可跨个人、公司、内网环境重建的 Agent/Skill 与开发软件；安全子集经私有 GitHub Release 分发。
-- 近期里程碑：agentctl 第一版全流程验收；serial-debug skill 换 Qt 工作台并同步上游；export 扫描误报修复；skills CLI 与 ui-ux-pro-max 入库。serial-gui 本地开发克隆已删，以 skill 内置副本与上游 493935827/serial-gui 为准（细节见归档行）。
+- 近期里程碑：progress/交接约定改版为渐进式披露三层；agentctl 第一版全流程验收；serial-debug skill 换 Qt 工作台并同步上游；export 扫描误报修复；skills CLI 与 ui-ux-pro-max 入库。serial-gui 本地开发克隆已删，以 skill 内置副本与上游 493935827/serial-gui 为准（细节见归档行）。
 - Skills：源 47、公共启用 42；personal/company/intranet 启用 44/44/43，公司机链接 44/44 健康，其余环境待 update 生效。
 - agentctl：中文 help、全局入口与 15 个子命令已验证（README）；待修：update 重链用拉取前旧配置（新增启用 skill 需手动 link）、test_discovery 4 项存量失败且污染真实 personal.yaml（已还原）——均待用户决策。
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release。
 - 开发配套：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档，按敏感数据保管。
 - 安全边界：`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
-- 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。
+- 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）；3 个提交待推送（代理到 GitHub 的 SSL 握手失败，推送配方见 2026-10-21 归档）。
 - 下一步：按用户新需求推进；各环境 update 后刷新启用计数。
 
 ## 对话归档
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-21 / progress 渐进式披露改版 | 概况改为每主题一行三层披露，handoff/project-structure/AGENTS.md 约定同步，progress.md 压缩为 9 行示范；提交未推送 | [progress 约定渐进式披露改版](handoff-20261021-105633-progressive-disclosure-progress-rules.md) |
 | 2026-10-16 / vercel skills CLI 集成 | 安装验收 skills CLI v1.7.2 并入库 find-skills 技能；发现 test_discovery 存量失败与真实配置污染缺陷（已还原） | [vercel-labs/skills CLI 集成](handoff-20261016-105816-vercel-skills-cli.md) |
 | 2026-10-14 / `session-a192d833`（export 扫描修复） | 修复 agentctl export 密钥扫描把 URL 词组误判为 OpenAI key 的问题，回归与真实导出验证通过（提交已由用户推送） | [export 密钥扫描误报修复](handoff-20261014-140351-export-secret-scan-fix.md) |
 | 2026-10-13 / serial-qt promotion & skill sync | serial-gui 切换 Qt 主分支、移植 backspace 修复、新增服务会话与 agent 接管；serial-debug skill 替换为 Qt 工作台并同步规范仓库（三仓库均已推送；真实硬件验收未做） | [serial-gui Qt 主分支切换与 skill 工具同步](handoff-20261013-163203-serial-qt-promotion-skill-sync.md) |
