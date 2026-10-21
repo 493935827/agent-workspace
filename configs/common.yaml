@@ -104,3 +104,22 @@ resources:
   npm:
     skills:
       version: null
+
+# 机器级环境配置：bootstrap 幂等写入，doctor 以 machine:* 检查漂移。
+# Windows 写 HKCU\Environment 与 PowerShell profile 标记块（字节级注入，不动用户内容）；
+# 其他平台写 ~/.profile 标记块。{root} 占位符解析为工作区根目录。
+# 执行策略只升不降，GPO 管控时自动跳过。刻意不设：
+#   AGENTCTL_ENV —— local.yaml 已是环境标记，该变量保留为手动覆盖通道；
+#   DISABLE_TELEMETRY —— 用户偏好（2026-10-16 决策），需要时在 local.yaml 本段自行声明。
+machine_setup:
+  env_vars:
+    AGENT_WORKSPACE_ROOT: "{root}"
+  path_entries:
+    - "{root}/scripts"
+  powershell:
+    execution_policy: RemoteSigned
+    profile_snippets:
+      zoxide: |
+        if (Get-Command zoxide -ErrorAction SilentlyContinue) {
+            Invoke-Expression (& { (zoxide init powershell | Out-String) })
+        }

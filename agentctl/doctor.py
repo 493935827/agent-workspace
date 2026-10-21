@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agentctl import environment as env_mod
-from agentctl import gitops, workspace
+from agentctl import gitops, machine as machine_mod, workspace
 from agentctl.config import build_effective
 from agentctl.links import LinkManager
 from agentctl.secrets import check as secrets_check
@@ -115,6 +115,11 @@ def run_checks(root: Path) -> list[Check]:
             add(f"tool:{name}", PASS, "present")
         else:
             add(f"tool:{name}", PASS, v)
+
+    # machine-level setup declared via machine_setup (bootstrap applies it)
+    for name, ok, detail in machine_mod.status(root, cfg):
+        add(f"machine:{name}", PASS if ok else WARN,
+            detail if ok else f"{detail} (run: agentctl bootstrap)")
 
     # skills
     skills_root = root / "skills"

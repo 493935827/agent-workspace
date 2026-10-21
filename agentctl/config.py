@@ -122,6 +122,10 @@ class EffectiveConfig:
     def app_configs(self) -> dict:
         return self.raw.get("app_configs") or {}
 
+    @property
+    def machine_setup(self) -> dict:
+        return self.raw.get("machine_setup") or {}
+
 
 def build_effective(
     root: Path, environment: str | None, extra_local: dict | None = None

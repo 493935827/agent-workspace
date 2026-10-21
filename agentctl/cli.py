@@ -73,7 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="仍执行只读 fetch 并列出待拉取提交；不 pull 或刷新链接")
 
     bp = sub.add_parser("bootstrap", help="初始化或重建本机工作环境",
-                        description="设置环境标记，准备本地目录、.env 模板和 Python 依赖，刷新 Skill 链接并运行 doctor。",
+                        description="设置环境标记，准备本地目录、.env 模板和 Python 依赖，按 machine_setup 配置"
+                                    "机器级环境（用户环境变量、PATH、PowerShell 执行策略与 profile），"
+                                    "刷新 Skill 链接并运行 doctor。",
                         epilog="示例: agentctl bootstrap --env personal --dry-run\n首次使用须指定 --env；已有环境可从 AGENTCTL_ENV 或 local.yaml 读取。",
                         formatter_class=argparse.RawDescriptionHelpFormatter)
     bp.add_argument("--env", dest="env", default=None,

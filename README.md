@@ -82,7 +82,7 @@ uv run agentctl --version    # 或 .venv/Scripts/python -m agentctl --version
 
 验证安装：`uv run agentctl doctor`。
 
-如需从任意目录直接运行 `agentctl`，将工作区的 `scripts/` 目录加入用户 `PATH`，并把用户环境变量 `AGENT_WORKSPACE_ROOT` 设为工作区根目录；重新打开终端后生效。健康检查使用子命令 `agentctl doctor`，不要写成 `agentctl --doctor`。
+首次 `agentctl bootstrap --env <环境>` 会按 `machine_setup:` 配置段（默认在 `configs/common.yaml`）自动完成机器级配置：设置用户环境变量 `AGENT_WORKSPACE_ROOT`、把工作区 `scripts/` 加入用户 `PATH`（从此任意目录可直接运行 `agentctl`）、将 PowerShell 执行策略提到 `RemoteSigned`（只升不降，GPO 管控时自动跳过）、向 PowerShell profile 注入 zoxide 钩子标记块（未装 zoxide 时为无害空操作）；非 Windows 写入 `~/.profile` 标记块。重新打开终端后生效，`agentctl doctor` 的 `machine:*` 检查会报告漂移。刻意不自动设置：`AGENTCTL_ENV`（local.yaml 已是环境标记，该变量保留为手动覆盖通道）、`DISABLE_TELEMETRY`（用户偏好；需要时在本机 local.yaml 的 `machine_setup.env_vars` 声明）。健康检查使用子命令 `agentctl doctor`，不要写成 `agentctl --doctor`。
 
 ## 5. 三种环境初始化
 
@@ -99,7 +99,7 @@ python -m venv .venv
 .venv/Scripts/python -m agentctl bootstrap --env intranet --offline
 ```
 
-`bootstrap` 做的事（全部幂等，重复执行安全）：git init（如缺）→ 写 `local.yaml` 环境标记 → 建本地目录 → 从 `.env.example` 生成 `.env`（已存在则跳过）→ 装依赖（online 用 uv，offline 从 `packages/wheels` 装）→ 按 profile 链接 skill → 跑 doctor。
+`bootstrap` 做的事（全部幂等，重复执行安全）：git init（如缺）→ 写 `local.yaml` 环境标记 → 建本地目录 → 从 `.env.example` 生成 `.env`（已存在则跳过）→ 装依赖（online 用 uv，offline 从 `packages/wheels` 装）→ 按 `machine_setup:` 配置机器级环境（环境变量/PATH/PowerShell，见第 4 节）→ 按 profile 链接 skill → 跑 doctor。
 
 先预览不落盘：`agentctl bootstrap --env personal --dry-run`。
 

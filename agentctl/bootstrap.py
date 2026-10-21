@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from agentctl import environment as env_mod
-from agentctl import gitops, workspace
+from agentctl import gitops, machine as machine_mod, workspace
 from agentctl.config import build_effective
 from agentctl.doctor import print_checks, run_checks
 from agentctl.links import LinkManager
@@ -128,7 +128,11 @@ def run_bootstrap(root: Path, environment: str, dry_run: bool = False,
     for line in lm.apply(lm.plan(cfg.enabled_skills), dry_run=dry_run):
         print(line)
 
-    # 7. doctor
+    # 7. machine-level setup (user env vars, PATH, PowerShell)
+    for line in machine_mod.apply_machine_setup(root, cfg, dry_run=dry_run):
+        print(line)
+
+    # 8. doctor
     print()
     if dry_run:
         print("[dry-run] doctor skipped")
