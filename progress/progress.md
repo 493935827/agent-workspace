@@ -19,6 +19,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-21 / CopyQ 配置纳管与 20 行截断（\session-0c3bbc348b06\） | agentctl 新增 appconfig 子命令（capture/deploy，备份优先），CopyQ 配置+历史备份发布于私有 user-data-2026-10-21 Release 并两轮刷新校验；实机配置条目 20 行截断生效、预览默认关（F7 查看超长条目）；发现本机实装 3.12.0 | [CopyQ 配置纳管与 20 行截断](handoff-20261021-165500-copyq-config-appconfig.md) |
 | 2026-10-21 / CopyQ 配置纳管与 20 行截断（`session-0c3bbc348b06`） | agentctl 新增 appconfig 子命令（capture/deploy，备份优先），CopyQ 配置+历史备份发布于私有 user-data-2026-10-21 Release 并两轮刷新校验；实机配置条目 20 行截断生效、预览默认关（F7 查看超长条目）；发现本机实装 3.12.0 | [CopyQ 配置纳管与 20 行截断](handoff-20261021-165500-copyq-config-appconfig.md) |
 | 2026-10-21 / CLI-Anything 装机（`session-ce3ae958b0b0`） | 调研并装机：cli-hub v0.4.1（uv tool 入 PATH）、cli-hub-meta-skill、7 阶段生成器 skill（官方 install.ps1 组装 24 文件）；装 CLI/生成未实战 | [CLI-Anything 调研与装机](handoff-20261021-170157-cli-anything-install.md) |
 | 2026-10-21 / serial-gui 拖动诊断（`session-86feed6014c3`） | 鼠标注入台把「窗口有时拖不动」复现到事件级：菜单栏 MinimumExpanding 死区、最大化 startSystemMove 失效、模态锁窗与 comports 阻塞；修复未实施 | [serial-gui 标题栏拖动诊断](handoff-20261021-153400-serial-gui-titlebar-drag.md) |
