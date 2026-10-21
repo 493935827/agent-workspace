@@ -1,12 +1,13 @@
 # 项目进度
 
-最后更新：2026-10-21 11:00（Asia/Shanghai）
+最后更新：2026-10-21 15:40（Asia/Shanghai）
 
 ## 当前概况
 
 - 当前目标：维护可跨个人、公司、内网环境重建的 Agent/Skill 与开发软件；安全子集经私有 GitHub Release 分发。
 - 近期里程碑：progress/交接约定改版为渐进式披露三层；agentctl 第一版全流程验收；serial-debug skill 换 Qt 工作台并同步上游；export 扫描误报修复；skills CLI 与 ui-ux-pro-max 入库。serial-gui 本地开发克隆已删，以 skill 内置副本与上游 493935827/serial-gui 为准（细节见归档行）。
 - Skills：源 47、公共启用 42；personal/company/intranet 启用 44/44/43，公司机链接 44/44 健康，其余环境待 update 生效。
+- serial-gui：标题栏「拖不动」三因已事件级复现（模态锁窗、GUI 线程枚举阻塞、QMenuBar 死区+最大化 startSystemMove 失效）；修复补丁已备待用户确认，证据与注入台见归档行。
 - agentctl：中文 help、全局入口与 15 个子命令已验证（README）；待修：update 重链用拉取前旧配置（新增启用 skill 需手动 link）、test_discovery 4 项存量失败且污染真实 personal.yaml（已还原）——均待用户决策。
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release。
 - 开发配套：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档，按敏感数据保管。
@@ -18,6 +19,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-21 / serial-gui 拖动诊断（`session-86feed6014c3`） | 鼠标注入台把「窗口有时拖不动」复现到事件级：菜单栏 MinimumExpanding 死区、最大化 startSystemMove 失效、模态锁窗与 comports 阻塞；修复未实施 | [serial-gui 标题栏拖动诊断](handoff-20261021-153400-serial-gui-titlebar-drag.md) |
 | 2026-10-21 / progress 渐进式披露改版 | 概况改为每主题一行三层披露，handoff/project-structure/AGENTS.md 约定同步，progress.md 压缩为 9 行示范；提交未推送 | [progress 约定渐进式披露改版](handoff-20261021-105633-progressive-disclosure-progress-rules.md) |
 | 2026-10-16 / vercel skills CLI 集成 | 安装验收 skills CLI v1.7.2 并入库 find-skills 技能；发现 test_discovery 存量失败与真实配置污染缺陷（已还原） | [vercel-labs/skills CLI 集成](handoff-20261016-105816-vercel-skills-cli.md) |
 | 2026-10-14 / `session-a192d833`（export 扫描修复） | 修复 agentctl export 密钥扫描把 URL 词组误判为 OpenAI key 的问题，回归与真实导出验证通过（提交已由用户推送） | [export 密钥扫描误报修复](handoff-20261014-140351-export-secret-scan-fix.md) |
