@@ -34,9 +34,9 @@ class SessionTabBar(QTabBar):
         return super().minimumSizeHint().boundedTo(self.sizeHint())
 
 
-def row(*items, margins=(0, 0, 0, 0), spacing=8):
-    host = QWidget()
-    layout = QHBoxLayout(host)
+def row(*items, margins=(0, 0, 0, 0), spacing=8, host=QWidget):
+    widget = host()
+    layout = QHBoxLayout(widget)
     layout.setContentsMargins(*margins)
     layout.setSpacing(spacing)
     for item in items:
@@ -44,7 +44,7 @@ def row(*items, margins=(0, 0, 0, 0), spacing=8):
             layout.addStretch()
         else:
             layout.addWidget(item)
-    return host
+    return widget
 
 
 def label(text, role=None):
@@ -161,16 +161,69 @@ def parse_hex(text):
         return None
     return bytes.fromhex(cleaned)
 
-class TitleStrip(QWidget):
+def begin_window_move(widget, event):
+    """Drag the widget's window like a native title bar.
+
+    A maximized window first restores to its normal size while keeping the
+    grab point under the cursor (native Windows behavior), then hands the
+    ongoing drag to the window manager.
+    """
+    window = widget.window()
+    handle = window.windowHandle()
+    if handle is None:
+        return
+    if window.isMaximized():
+        normal = window.normalGeometry()
+        frame = window.frameGeometry()
+        cursor = event.globalPosition().toPoint()
+        if normal.isValid() and frame.width() > 0:
+            ratio = (cursor.x() - frame.left()) / frame.width()
+            grab_y = max(0, widget.mapTo(window, event.position().toPoint()).y())
+            window.showNormal()
+            window.move(round(cursor.x() - normal.width() * ratio), cursor.y() - grab_y)
+    handle.startSystemMove()
+
+
+class DragStrip(QWidget):
+    """Title-area row whose blank space drags the window."""
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.window().windowHandle().startSystemMove()
+            begin_window_move(self, event)
         else:
             super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.window().toggle_maximize()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+
+class DragMenuBar(QMenuBar):
+    """QMenuBar that drags the window from its blank area.
+
+    QMenuBar stretches horizontally past its visible items (its default
+    MinimumExpanding policy grabs half the free strip), and a press on that
+    blank part used to be swallowed in place, leaving a dead zone where the
+    window could not be moved (tools/serial-gui-drag-repro/drag_repro6.py).
+    """
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.actionAt(event.position().toPoint()) is None:
+            begin_window_move(self, event)
+        else:
+            super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.actionAt(event.position().toPoint()) is None:
+            self.window().toggle_maximize()
+        else:
+            super().mouseDoubleClickEvent(event)
+
+
+class TitleStrip(DragStrip):
+    pass
 
 class LineNumbers(QWidget):
     def __init__(self, editor):
@@ -733,7 +786,7 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         top.addWidget(logo)
         top.addWidget(label('Serial Workbench', 'brand'))
         top.addWidget(label('串口调试工作台', 'muted'))
-        menu = QMenuBar()
+        menu = DragMenuBar()
         menu.setNativeMenuBar(False)
         top.addWidget(menu)
         top.addStretch()
@@ -808,7 +861,7 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         add_tab.setFixedSize(24, 24)
         add_tab.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.tabs.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
-        tab_row = row(self.tabs, add_tab, None, margins=(0, 0, 8, 0), spacing=4)
+        tab_row = row(self.tabs, add_tab, None, margins=(0, 0, 8, 0), spacing=4, host=DragStrip)
         tab_row.setObjectName('tabs')
         tab_row.setFixedHeight(30)
         workspace_layout.addWidget(tab_row)
