@@ -1,0 +1,2 @@
+(this.webpackJsonp=this.webpackJsonp||[]).push([[185],{2989:function(t,s,n){"use strict";n.r(s),n.d(s,"namespace",(function(){return i}));var e=n(80);const i="page:setting";s.default=async()=>{const{fontList:t,lyricfontList:s}=await Object(e.o)();return{namespace:i,state:{fontList:t,lyricfontList:s},reducers:{},effects:{},subscriptions:{}}}}}]);
+//# sourceMappingURL=185.chunk.83304b1.js.map

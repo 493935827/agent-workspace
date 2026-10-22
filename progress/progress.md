@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-22 15:39（Asia/Shanghai）
+最后更新：2026-10-22 17:24（Asia/Shanghai）
 
 ## 当前概况
 
@@ -13,6 +13,7 @@
 - 开发配套与安全边界：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档按敏感数据保管；zoxide v0.10.0 已接入（用法见 AGENTS.md）；`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
 - 环境装机：CLI-Anything——cli-hub v0.4.1 入 PATH（uv tool）、meta-skill 与 7 阶段生成器 skill 已装，未实战；逆向 REA——rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP 207 工具+skill v42），Ghidra 12.1.4+JDK 21 就于 D:\App\tools（SHA-256 校验、doctor 全绿），待重启 Harness 实测 PE。
 - 个人仓库本地克隆（D:\App）：clash-speed-watch 与 mouse-copy-paste-windows 收录进 zoxide 种子；前者同步至 `8c7d919`（2026-10-21 规则中心迁移，2026-10-22 更新），后者与远程一致（`f022f02`，无落后）；GH 其余仓库无本地克隆。
+- 工程收录：CloudMusic_R（网易云 orpheus 逆向分析工作区）整体入库 `projects/cloudmusic-r`；cookies_copy.db、webdb_copy.dat（106 MiB 超 GitHub 100 MiB 限制）与 .venv 按仓库铁律/平台限制留在本地不入库，详见子树 .gitignore。
 - Git 推送排查（2026-10-22，已完成）：系统级安全组件按第二参数精确匹配拦截 `git push`（PS 原生注入 argv，Python/cmd/bash/node 取消），非 DSH/agentctl/Git 问题，Git 2.55 安装完整；全路径变通 `git -c alias.push= push …` 已实测并写入 git-delivery 技能；待用户终端验证是否同受影响、离线包（dist/，钉 `da09a49`）搬运内网；细节见[归档](handoff-20261022-153940-git-push-audit.md)。
 - 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。
 - 下一步：按用户新需求推进；各环境 update 后刷新启用计数；CLI-Anything 待指定目标软件后实战（cli-hub 装现成 CLI 或生成器造 harness）。

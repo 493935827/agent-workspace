@@ -1,0 +1,7 @@
+# Live credential / machine-local state — never commit (repo constitution)
+_analysis/cookies_copy.db
+_analysis/webdb_copy.dat
+
+# Python environment, not project content
+_analysis/.venv/
+__pycache__/

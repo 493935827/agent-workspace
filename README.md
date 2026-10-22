@@ -54,6 +54,7 @@ agent-workspace/
 ├── configs/           # common/personal/company/intranet [Git: 是]
 ├── scripts/           # agentctl.cmd / agentctl.sh 包装  [Git: 是]
 ├── tools/             # CLI/MCP 配置模板                 [Git: 是]
+├── projects/          # 独立工程工作区（各带 .gitignore） [Git: 是]
 ├── agentctl/          # CLI 工具源码 (Python)           [Git: 是]
 ├── tests/             # pytest 测试                     [Git: 是]
 ├── .env.example       # Secret schema（只有名字）       [Git: 是]

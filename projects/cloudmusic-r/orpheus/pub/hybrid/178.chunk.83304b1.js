@@ -1,0 +1,2 @@
+(this.webpackJsonp=this.webpackJsonp||[]).push([[178],{3007:function(s,t,e){"use strict";e.r(t),e.d(t,"namespace",(function(){return c}));const c="page:community";t.default=async()=>({namespace:c,state:{},reducers:{},effects:{},subscriptions:{}})}}]);
+//# sourceMappingURL=178.chunk.83304b1.js.map

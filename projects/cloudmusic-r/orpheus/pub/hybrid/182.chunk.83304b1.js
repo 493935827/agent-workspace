@@ -1,0 +1,2 @@
+(this.webpackJsonp=this.webpackJsonp||[]).push([[182],{2990:function(t,n,e){"use strict";e.r(n),e.d(n,"namespace",(function(){return i}));var s=e(99);const i="page:settingAccount";n.default=async()=>({namespace:i,state:{},reducers:{},effects:{getBindings(t,n){let{payload:e}=t,{call:i,put:c}=n;return function*(){const{userId:t}=e,n=yield i(s.b,t);yield c({type:"host/updateBindings",payload:{bindings:n}})}()}},subscriptions:{}})}}]);
+//# sourceMappingURL=182.chunk.83304b1.js.map
