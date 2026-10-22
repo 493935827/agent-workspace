@@ -13,7 +13,7 @@
 - 开发配套与安全边界：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档按敏感数据保管；zoxide v0.10.0 已接入（用法见 AGENTS.md）；`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
 - 环境装机：CLI-Anything——cli-hub v0.4.1 入 PATH（uv tool）、meta-skill 与 7 阶段生成器 skill 已装，未实战；逆向 REA——rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP 207 工具+skill v42），Ghidra 12.1.4+JDK 21 就于 D:\App\tools（SHA-256 校验、doctor 全绿），待重启 Harness 实测 PE。
 - 个人仓库本地克隆（D:\App）：clash-speed-watch 与 mouse-copy-paste-windows 收录进 zoxide 种子；前者同步至 `8c7d919`（2026-10-21 规则中心迁移，2026-10-22 更新），后者与远程一致（`f022f02`，无落后）；GH 其余仓库无本地克隆。
-- Git 推送排查（2026-10-22）：Git 2.55 安装完整无损坏（git-push.exe 等缺省属新版布局，对照 MinGit-2.55.0.3 官方包确认）；Harness 沙箱会改写带 remote 仓库的 `git push` argv（进程层注入，.NET/Start-Process/cmd 直启亦被拦），agent 会话内推送用通道 `git -c alias.push= push …`（已实测跑通），用户终端不受影响；变通已同步进 git-delivery 技能推送一节。内网分发：10-22 离线包已重打至 `3672f12`（421 文件，dist/agent-workspace-v0.1.0-offline.zip，待人工搬运 import；旧包 10-21 17:58 不含本日更新）。
+- Git 推送排查（2026-10-22）：机器上安全组件按第二参数精确匹配定向拦截 `git push`（PS 原生生成遭 argv 注入，Python/cmd/bash/node/.NET 生成被直接取消 WinError 1223），非 DSH/agentctl/Git 问题；Git 2.55 安装完整（git-push.exe 等缺省属新版布局，对照 MinGit 官方包确认）；其余 git 子命令与 agentctl update 全生成路径实测正常；全路径变通 `git -c alias.push= push …`（已实测），用户终端是否受影响未验证（前日推送曾成功，勿据此断定安装损坏）；变通已写入 git-delivery 技能。内网分发：10-22 离线包重打（dist/，含当日提交，待人工搬运 import；搬运前仓库再有更新需重打）。
 - 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。
 - 下一步：按用户新需求推进；各环境 update 后刷新启用计数；CLI-Anything 待指定目标软件后实战（cli-hub 装现成 CLI 或生成器造 harness）。
 
