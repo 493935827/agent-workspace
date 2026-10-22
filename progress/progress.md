@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-22 11:25（Asia/Shanghai）
+最后更新：2026-10-22 11:29（Asia/Shanghai）
 
 ## 当前概况
 
@@ -12,6 +12,7 @@
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release；CopyQ 配置+剪贴板历史已发布于私有 user-data-2026-10-21 Release（agent-software-packages，SHA-256 校验通过，可用 agentctl appconfig deploy 恢复）；本机实装 CopyQ 3.12.0（交付包内为 16.0.0 安装器，升级未做），条目 20 行截断已配置生效。
 - 开发配套与安全边界：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档按敏感数据保管；zoxide v0.10.0 已接入（用法见 AGENTS.md）；`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
 - 环境装机：CLI-Anything——cli-hub v0.4.1 入 PATH（uv tool）、meta-skill 与 7 阶段生成器 skill 已装，未实战；逆向 REA——rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP 207 工具+skill v42），Ghidra 12.1.4+JDK 21 就于 D:\App\tools（SHA-256 校验、doctor 全绿），待重启 Harness 实测 PE。
+- 个人仓库本地克隆（D:\App）：clash-speed-watch 与 mouse-copy-paste-windows 收录进 zoxide 种子；前者同步至 `8c7d919`（2026-10-21 规则中心迁移，2026-10-22 更新），后者与远程一致（`f022f02`，无落后）；GH 其余仓库无本地克隆。
 - 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。
 - 下一步：按用户新需求推进；各环境 update 后刷新启用计数；CLI-Anything 待指定目标软件后实战（cli-hub 装现成 CLI 或生成器造 harness）。
 
