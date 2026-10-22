@@ -1,24 +1,25 @@
 # 项目进度
 
-最后更新：2026-10-21 17:34（Asia/Shanghai）
+最后更新：2026-10-22 11:25（Asia/Shanghai）
 
 ## 当前概况
 
 - 当前目标：维护可跨个人、公司、内网环境重建的 Agent/Skill 与开发软件；安全子集经私有 GitHub Release 分发。
 - 近期里程碑：progress/交接约定改版为渐进式披露三层；agentctl 第一版全流程验收；serial-debug skill 换 Qt 工作台并同步上游；export 扫描误报修复；skills CLI 与 ui-ux-pro-max 入库；handoff/git-delivery 提交信息规范成文（Conventional Commits + Handoff trailer）。serial-gui 本地开发克隆已删，以 skill 内置副本与上游 493935827/serial-gui 为准（细节见归档行）。
 - Skills：源 47、公共启用 42；personal/company/intranet 启用 44/44/43，公司机链接 44/44 健康，其余环境待 update 生效。
-- serial-gui：标题栏「拖不动」三因已事件级复现（模态锁窗、GUI 线程枚举阻塞、QMenuBar 死区+最大化 startSystemMove 失效）；修复补丁已备待用户确认，证据与注入台见归档行。
+- serial-gui：标题栏「拖不动」修复完成（2026-10-22 `998c023`：QMenuBar 空白死区接管 + 标签行 DragStrip + 最大化先还原；`drag_repro7` 真鼠标注入决定性回归 + 118 测试绿）；实机人工验收待做，归档在 [skill 侧 handoff](../skills/serial-debug/progress/handoff-20261022-111757-titlebar-drag-fix.md)。
 - agentctl：中文 help、全局入口与 16 个子命令已验证（README；appconfig：应用配置 capture/deploy，CopyQ 已纳管，设置模板 tools/copyq；machine_setup：bootstrap 自动配置机器级环境——AGENT_WORKSPACE_ROOT/用户 PATH/PowerShell 执行策略与 profile 标记块，doctor machine:* 查漂移，本机部署验证）；待修：update 重链用拉取前旧配置（新增启用 skill 需手动 link）、test_discovery 4 项存量失败且污染真实 personal.yaml（已还原；2026-10-21 全量 pytest 再次复现并还原）——均待用户决策。
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release；CopyQ 配置+剪贴板历史已发布于私有 user-data-2026-10-21 Release（agent-software-packages，SHA-256 校验通过，可用 agentctl appconfig deploy 恢复）；本机实装 CopyQ 3.12.0（交付包内为 16.0.0 安装器，升级未做），条目 20 行截断已配置生效。
 - 开发配套与安全边界：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档按敏感数据保管；zoxide v0.10.0 已接入（用法见 AGENTS.md）；`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
 - 环境装机：CLI-Anything——cli-hub v0.4.1 入 PATH（uv tool）、meta-skill 与 7 阶段生成器 skill 已装，未实战；逆向 REA——rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP 207 工具+skill v42），Ghidra 12.1.4+JDK 21 就于 D:\App\tools（SHA-256 校验、doctor 全绿），待重启 Harness 实测 PE。
 - 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。
-- 下一步：用户终端推送 5 个待推提交；按用户新需求推进；各环境 update 后刷新启用计数；CLI-Anything 待指定目标软件后实战（cli-hub 装现成 CLI 或生成器造 harness）。
+- 下一步：按用户新需求推进；各环境 update 后刷新启用计数；CLI-Anything 待指定目标软件后实战（cli-hub 装现成 CLI 或生成器造 harness）。
 
 ## 对话归档
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-22 / serial-gui 拖拽死区修复（续 `session-86feed6014c3`） | 菜单栏空白死区 + 标签行空白修复并推送（`998c023`），`drag_repro7` 决定性回归 + 118 测试绿；实机人工验收待做；归档在 serial-debug skill 侧 | [Titlebar drag fix（skill 归档）](../skills/serial-debug/progress/handoff-20261022-111757-titlebar-drag-fix.md) |
 | 2026-10-21 / 提交信息规范成文（`session-d857c331`） | 调研业界与 AI agent 提交约定后，handoff/git-delivery 技能成文 Conventional Commits 规范（含 `Handoff:` trailer），任务提交 `e92221d` 已提交待推送 | [handoff 提交信息规范](handoff-20261021-173400-commit-message-convention.md) |
 | 2026-10-21 / REA 逆向环境接入（`session-23bc19fc1440`） | rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP+skill v42），Ghidra 12.1.4+JDK 21 装于 D:\App\tools 且 doctor 全绿；Ghidra 待重启 Harness 实测 | [REA 逆向环境接入](handoff-20261021-170305-rea-dsh-ghidra-setup.md) |
 | 2026-10-21 / CopyQ 配置纳管与 20 行截断（`session-0c3bbc348b06`） | agentctl 新增 appconfig 子命令（capture/deploy，备份优先），CopyQ 配置+历史备份发布于私有 user-data-2026-10-21 Release 并两轮刷新校验；实机配置条目 20 行截断生效、预览默认关（F7 查看超长条目）；发现本机实装 3.12.0 | [CopyQ 配置纳管与 20 行截断](handoff-20261021-165500-copyq-config-appconfig.md) |

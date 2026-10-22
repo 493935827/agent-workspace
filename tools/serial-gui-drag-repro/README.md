@@ -33,7 +33,7 @@
 | 菜单栏与按钮之间纯空白 | TitleStrip | +130,+70 ✓ |
 | QMenuBar 铺出的空白区 | QMenuBar（就地吞掉，不转发） | +0,+0 ✗ |
 
-## 修复后回归（2026-10-21 已修复）
+## 修复后回归（2026-10-22 已修复）
 
 修复落在 `skills/serial-debug/scripts/serial_gui_qt_prototype.py`：
 `TitleStrip` 泛化为 `DragStrip`（空白区拖动 + 最大化先还原再跟手），新增
