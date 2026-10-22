@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-22 14:05（Asia/Shanghai）
+最后更新：2026-10-22 15:39（Asia/Shanghai）
 
 ## 当前概况
 
@@ -13,7 +13,7 @@
 - 开发配套与安全边界：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档按敏感数据保管；zoxide v0.10.0 已接入（用法见 AGENTS.md）；`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
 - 环境装机：CLI-Anything——cli-hub v0.4.1 入 PATH（uv tool）、meta-skill 与 7 阶段生成器 skill 已装，未实战；逆向 REA——rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP 207 工具+skill v42），Ghidra 12.1.4+JDK 21 就于 D:\App\tools（SHA-256 校验、doctor 全绿），待重启 Harness 实测 PE。
 - 个人仓库本地克隆（D:\App）：clash-speed-watch 与 mouse-copy-paste-windows 收录进 zoxide 种子；前者同步至 `8c7d919`（2026-10-21 规则中心迁移，2026-10-22 更新），后者与远程一致（`f022f02`，无落后）；GH 其余仓库无本地克隆。
-- Git 推送排查（2026-10-22）：机器上安全组件按第二参数精确匹配定向拦截 `git push`（PS 原生生成遭 argv 注入，Python/cmd/bash/node/.NET 生成被直接取消 WinError 1223），非 DSH/agentctl/Git 问题；Git 2.55 安装完整（git-push.exe 等缺省属新版布局，对照 MinGit 官方包确认）；其余 git 子命令与 agentctl update 全生成路径实测正常；全路径变通 `git -c alias.push= push …`（已实测），用户终端是否受影响未验证（前日推送曾成功，勿据此断定安装损坏）；变通已写入 git-delivery 技能。内网分发：10-22 离线包重打（dist/，含当日提交，待人工搬运 import；搬运前仓库再有更新需重打）。
+- Git 推送排查（2026-10-22，已完成）：系统级安全组件按第二参数精确匹配拦截 `git push`（PS 原生注入 argv，Python/cmd/bash/node 取消），非 DSH/agentctl/Git 问题，Git 2.55 安装完整；全路径变通 `git -c alias.push= push …` 已实测并写入 git-delivery 技能；待用户终端验证是否同受影响、离线包（dist/，钉 `da09a49`）搬运内网；细节见[归档](handoff-20261022-153940-git-push-audit.md)。
 - 阻塞：仍缺 AndeSight 5.3.1（走公司批准渠道）。
 - 下一步：按用户新需求推进；各环境 update 后刷新启用计数；CLI-Anything 待指定目标软件后实战（cli-hub 装现成 CLI 或生成器造 harness）。
 
@@ -21,6 +21,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-22 / Git push 定向拦截排查（session ID 不可见） | 定位系统级 git push 拦截（第二参数匹配）并纠正「安装损坏」误诊；`-c` 变通写入 git-delivery 技能；四笔提交推送（`3672f12` 经 GitHub API 复刻）；离线包重打待搬运内网；用户终端是否受影响未验证 | [Git push 拦截排查与分发](handoff-20261022-153940-git-push-audit.md) |
 | 2026-10-22 / serial-gui 拖拽死区修复（续 `session-86feed6014c3`） | 菜单栏空白死区 + 标签行空白修复并推送（`998c023`），`drag_repro7` 决定性回归 + 118 测试绿；实机人工验收待做；归档在 serial-debug skill 侧 | [Titlebar drag fix（skill 归档）](../skills/serial-debug/progress/handoff-20261022-111757-titlebar-drag-fix.md) |
 | 2026-10-21 / 提交信息规范成文（`session-d857c331`） | 调研业界与 AI agent 提交约定后，handoff/git-delivery 技能成文 Conventional Commits 规范（含 `Handoff:` trailer），任务提交 `e92221d` 已提交待推送 | [handoff 提交信息规范](handoff-20261021-173400-commit-message-convention.md) |
 | 2026-10-21 / REA 逆向环境接入（`session-23bc19fc1440`） | rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP+skill v42），Ghidra 12.1.4+JDK 21 装于 D:\App\tools 且 doctor 全绿；Ghidra 待重启 Harness 实测 | [REA 逆向环境接入](handoff-20261021-170305-rea-dsh-ghidra-setup.md) |
