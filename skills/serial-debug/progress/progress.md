@@ -17,6 +17,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-23 / 直发模式 ←/→ 预输入回显消失修复 | 根因：追加式日志无法呈现行内光标移动，而直发模式把 ←/→ 转成 `ESC[D/C` 发给设备，仅回显/仅历史型 shell（atom>>）以退格应答光标左移、GUI 擦除逻辑抹掉回显输入行；修复为 ←/→ 不发送仅本地光标、↑/↓ 历史与编辑键逐字节保留；+4 回归（先红后绿）全套 127 项绿；`476f765`/`941cd34` 已推送；实机验收待板子 | [Direct arrow fix](handoff-20261023-152828-direct-arrow-fix.md) |
 | 2026-10-23 / 桥读侧静默死亡：静态定位与修复（另一台电脑报告，板子占用） | 根因定位：被动扫描线程与 `_reader` 并发 `device.read`（win32 共享 OVERLAPPED 可永久卡死读线程，探针 `max_active=2` 实证）；修复：扫描等 reader 停车握手 + 线程死亡上浮 `status.error` + 5s 看门狗整桥退出 + `rx/tx_bytes_total`/`last_rx_timestamp` + 日志会话头；+5 回归（扫描互斥先红后绿）全套 123 项绿；shared-bridge/troubleshooting 同步；`403cb92`/`080692c` 已推送；真机验收与报告机取证待做 | [Silent RX death fix](handoff-20261023-144215-silent-rx-death.md) |
 | 2026-10-22 / 标题栏拖拽死区修复（接 `session-86feed6014c3` 诊断） | 菜单栏 MinimumExpanding 铺宽死区 + 会话标签行空白两处拖拽失效修复（`DragMenuBar`/`DragStrip`/`begin_window_move`，最大化先还原再跟手），`998c023` 已推送；`drag_repro7` 真鼠标注入决定性回归 + 118 测试绿；实机人工验收待做 | [Titlebar drag fix](handoff-20261022-111757-titlebar-drag-fix.md) |
 | 2026-10-20 / 审查遗留 P1/P2 修复 | 3×P1 + 2×P2 全修：takeover×扫描竞态（`scan_open_device` 协作式中止 `should_abort` + `_revoke`/`_device_action` 中止等待 + 扫描只清自己的 transition）、桥死亡假在线（1s `status` 探活两振判死→error→closed）、接管失败改非致命 `takeover_failed`（WARN，会话不毒化）、`_raw_notice`/reader raw_clients 竞态纳锁（40 轮压测先红后绿）、raw 拒发保持连接并提示；+10 回归测试，全套 111 项绿（offscreen ~600s）；README 双份行为同步；`367aed4` 已推送 | [Review P1/P2 fixes](handoff-20261020-170100-review-p1p2-bugfix.md) |
