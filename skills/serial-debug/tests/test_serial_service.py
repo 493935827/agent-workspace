@@ -5,6 +5,7 @@ import json
 import queue
 import socket
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -557,6 +558,155 @@ class SerialControlLeasePathTests(unittest.TestCase):
         self.assertEqual('occupied', json.loads(out)['error']['code'])
         self.assertEqual(b'', bytes(self.device.writes))
         self.run_cli('agent.release', '--token', token)
+
+
+class ReaderRobustnessTests(unittest.TestCase):
+    """The 2026-10-23 silent RX death contract: a reader thread that dies or
+    wedges must surface in status and stop the bridge, byte flow must be
+    observable, and a baud scan must never issue a device.read() concurrent
+    with the reader's (pyserial win32 backs every read() with ONE shared
+    OVERLAPPED per Serial object; two in-flight reads can wedge both)."""
+
+    def setUp(self):
+        self.device = FakeSerial()
+        self.service = SerialService(port='FAKE', tcp=0, control=0,
+                                     serial_factory=lambda *_: self.device).start()
+        self.addCleanup(self.service.close)
+        self.client = Client(port=self.service.control_port)
+        self.addCleanup(self.client.close)
+
+    def wait_job(self, job):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            state = self.client.call('job.status', job_id=job['job_id'])
+            if state['state'] not in ('queued', 'writing'):
+                return state
+            time.sleep(.01)
+        self.fail('job did not finish')
+
+    def test_status_counts_rx_and_tx_bytes_with_last_rx_timestamp(self):
+        status = self.client.call('status')
+        self.assertEqual(0, status['rx_bytes_total'])
+        self.assertEqual(0, status['tx_bytes_total'])
+        self.assertIsNone(status['last_rx_timestamp'])
+        self.device.input.put(b'hello')
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = self.client.call('status')
+            if status['rx_bytes_total'] >= 5:
+                break
+            time.sleep(.01)
+        self.assertGreaterEqual(status['rx_bytes_total'], 5)
+        self.assertIsNotNone(status['last_rx_timestamp'])
+        job = self.client.call('send', data='abc')
+        self.assertEqual(self.wait_job(job)['state'], 'written')
+        self.assertGreaterEqual(self.client.call('status')['tx_bytes_total'], 3)
+
+    def test_reader_thread_death_surfaces_in_status_then_stops_bridge(self):
+        from serial_service import READER_STALL_SECONDS
+        self.device.input.put(ValueError('boom'))
+        error = None
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try:
+                error = self.client.call('status').get('error')
+            except (OSError, EOFError, ValueError):
+                break  # bridge already stopped loudly
+            if error:
+                break
+            time.sleep(.02)
+        self.assertTrue(error, 'reader thread death never surfaced in status.error')
+        self.assertIn('_reader', error)
+        deadline = time.monotonic() + READER_STALL_SECONDS + 3
+        while time.monotonic() < deadline and not self.service.stop.is_set():
+            time.sleep(.05)
+        self.assertTrue(self.service.stop.is_set(), 'watchdog never stopped the bridge')
+
+    def test_reader_stall_watchdog_stops_the_bridge(self):
+        from serial_service import READER_STALL_SECONDS
+        gate = threading.Event()
+        entered = threading.Event()
+        original_read = self.device.read
+
+        def wedged_read(size):
+            entered.set()
+            gate.wait(READER_STALL_SECONDS + 5)  # a read that never returns
+            return original_read(size)
+
+        self.device.read = wedged_read
+        self.assertTrue(entered.wait(2), 'reader never entered device.read')
+        deadline = time.monotonic() + READER_STALL_SECONDS + 3
+        while time.monotonic() < deadline and not self.service.stop.is_set():
+            time.sleep(.05)
+        self.assertTrue(self.service.stop.is_set(), 'watchdog never stopped a wedged reader')
+        self.assertIn('reader', self.service.last_error or '')
+        gate.set()  # unblock so addCleanup can join the threads
+
+    def test_scan_reads_exclusively_never_concurrent_with_reader(self):
+        lock = threading.Lock()
+        stats = dict(active=0, max_active=0, scan_reads=0)
+        original_read = self.device.read
+
+        def tracked_read(size):
+            with lock:
+                stats['active'] += 1
+                stats['max_active'] = max(stats['max_active'], stats['active'])
+                if threading.current_thread().name != '_reader':
+                    stats['scan_reads'] += 1
+            try:
+                time.sleep(.05)  # widen each read so an overlap cannot hide
+                return original_read(size)
+            finally:
+                with lock:
+                    stats['active'] -= 1
+
+        self.device.read = tracked_read
+        for _ in range(60):
+            self.device.input.put(b'0123456789abcdef')
+        # The reader is essentially always inside a read with data streaming;
+        # start the scan while that is true.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            with lock:
+                if stats['active'] >= 1:
+                    break
+            time.sleep(.005)
+        self.client.call('serial.autobaud', mode='passive', bauds=[9600],
+                         seconds=.2, rounds=1, min_bytes=1)
+        # Wait for the scan to actually run to completion before judging the
+        # overlap counter (pre-fix, reader reads share the counter because the
+        # worker threads are unnamed; the scan-done poll bounds the window).
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            state = self.client.call('autobaud.status')
+            if not state.get('scanning') and not state.get('requested'):
+                break
+            time.sleep(.02)
+        self.assertEqual(1, stats['max_active'],
+                         'reader and scan were inside device.read at the same time')
+
+    def test_logger_opens_with_a_session_header_line(self):
+        device = FakeSerial()
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = Path(tmp) / 'session.log'
+            service = SerialService(port='FAKE', tcp=0, control=0,
+                                    serial_factory=lambda *_: device,
+                                    log=str(log_path)).start()
+            try:
+                device.input.put(b'payload')
+                content = b''
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    if log_path.exists():
+                        content = log_path.read_bytes()
+                        if b'payload' in content:
+                            break
+                    time.sleep(.02)
+            finally:
+                service.close()
+            self.assertIn(b'payload', content)
+            self.assertTrue(content.startswith(b'=== bridge session start '),
+                            f'log file does not open with a session header: {content[:80]!r}')
 
 
 if __name__ == '__main__':

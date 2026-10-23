@@ -35,6 +35,17 @@ python scripts/shared_serial_bridge.py autobaud --control 8889 --mode active   #
 
 Runs the same scan on demand against a running bridge (`--control` defaults to raw TCP + 1). Exit codes: `0` detected or confirmed, `2` no signal, `3` ambiguous, `4` bridge unreachable/disconnected, `5` wait timeout, `6` busy or agent-owned. A final `autobaud_result:` line is printed for scripted use.
 
+## Bridge Health (data-plane status fields)
+
+A control-port `status` call reports the data plane, not just the control plane:
+
+- `rx_bytes_total` / `tx_bytes_total`: bytes actually forwarded in each direction. A frozen `rx_bytes_total` while the device demonstrably transmits means the bridge read path is dead — do not trust `connected:true` alone.
+- `last_rx_timestamp`: epoch seconds of the last forwarded RX byte (`null` until the first byte arrives).
+- `error`: serial/device errors and worker-thread deaths. A reader thread that dies or wedges sets `error` immediately and the bridge then stops itself loudly within a few seconds — it never lingers as a healthy-looking half-dead shell. Restart the bridge to recover.
+- Log files open with a `=== bridge session start <timestamp> pid=<pid> ===` line, so bytes left in the file from an earlier session can never masquerade as new output.
+
+Baud scans never overlap the bridge reader: a scan waits for the reader to park outside its read loop before touching the port, and a scan that cannot get that acknowledgment aborts with `reason: reader_unavailable` in `autobaud.status`. This protects the Windows overlapped-I/O path, where a concurrent read from the scan thread and the reader thread (one shared OVERLAPPED per port object) could otherwise wedge the reader permanently.
+
 ## Human Terminal
 
 ```bash

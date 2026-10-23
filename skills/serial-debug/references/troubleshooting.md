@@ -50,6 +50,13 @@ Check cable, adapter driver, permissions, and whether another tool already owns 
 - If `send` exits nonzero, inspect the serial log and prompt before retrying; the target may have received only part of the command.
 - If the TCP listener is alive but a new `help` command produces no serial echo, the running bridge predates automatic serial recovery or is otherwise unhealthy. Verify its exact process command line, replace only that bridge process, and start it again with the same configuration; the bundled bridge never toggles DTR/RTS on its own, so a restart does not reset the target unless the adapter wiring does.
 
+## TCP Alive But No Device Output (silent RX death)
+
+- `connected:true` with `error:null` is not proof the read path works. Check the data-plane counters in `status`: if `rx_bytes_total` stays frozen and `last_rx_timestamp` stops advancing while the device demonstrably transmits, the bridge's reader thread is dead or wedged regardless of what `connected` says.
+- A current build surfaces a dead worker in `status.error` and then stops the whole bridge within a few seconds; replace the bridge process and start it again.
+- A bridge older than that fix can look perfectly healthy in `status` while forwarding zero bytes. Replace it: stop the bridge, start a fresh one (skill venv python, without `--autobaud`), and only re-add `--autobaud` once the link is proven.
+- The log file grows only with forwarded RX bytes and opens with a `=== bridge session start ... ===` header. A frozen file whose tail predates the header means the read path produced nothing — the board is not necessarily dead.
+
 ## Data Looks Wrong
 
 - Recheck the console attachment mode.

@@ -1,11 +1,13 @@
 """Shared physical port owner and its local raw/control TCP transports."""
 import base64
 from collections import OrderedDict, deque
+from datetime import datetime
 import math
 import os
 from pathlib import Path
 import queue
 import socket
+import sys
 import threading
 import time
 import uuid
@@ -29,13 +31,26 @@ AUTO_BAUD_DEFAULTS = dict(enabled=False, active=False, bauds=DEFAULT_BAUDS,
                           min_suspect_bytes=MONITOR_MIN_BYTES,
                           cooldown_success=COOLDOWN_SUCCESS, cooldown_fail=COOLDOWN_FAIL)
 
+# The reader must never overlap a baud scan's device.read(): pyserial win32
+# backs every read() of one Serial object with ONE shared OVERLAPPED struct,
+# and two in-flight reads on it can wedge the reader forever with a perfectly
+# healthy-looking status (the 2026-10-23 silent RX death). The scan therefore
+# waits for the reader to park (READER_PAUSE_TIMEOUT), and the maintenance
+# watchdog stops the whole bridge when the reader stops making progress
+# (READER_STALL_SECONDS) instead of leaving it half-alive.
+READER_PAUSE_TIMEOUT = 1.5
+READER_STALL_SECONDS = 5.0
+
 
 def close_socket(sock):
     try:
         sock.shutdown(socket.SHUT_RDWR)
     except OSError:
         pass
-    sock.close()
+    try:
+        sock.close()
+    except OSError:
+        pass
 
 
 class SerialService:
@@ -80,18 +95,50 @@ class SerialService:
         self._scan_wakeup = threading.Event()
         self.scan_abort = threading.Event()
         self._suspect_window = deque()
+        self.rx_bytes_total = 0
+        self.tx_bytes_total = 0
+        self.last_rx_timestamp = None
+        self._reader_beat = time.monotonic()
+        self._reader_parked = threading.Event()
 
     def _thread(self, target, *args):
+        name = getattr(target, '__name__', 'worker')
+
         def run():
             try:
                 target(*args)
+            except BaseException as exc:  # never silent: a dead worker must
+                # not leave the bridge reporting a healthy-looking status.
+                message = f'{name} thread died: {exc!r}'
+                with self.lock:
+                    self.last_error = message
+                    state = self.status()
+                self._emit('state', state=state)
+                try:
+                    sys.stderr.write(f'[串口桥] {message}\n')
+                    sys.stderr.flush()
+                except OSError:
+                    pass
             finally:
                 with self.lock:
                     self.threads.discard(threading.current_thread())
-        thread = threading.Thread(target=run, daemon=True)
+        thread = threading.Thread(target=run, daemon=True, name=name)
         with self.lock:
             self.threads.add(thread)
         thread.start()
+
+    def _panic(self, message):
+        """Stop the whole bridge loudly instead of leaving it half-alive."""
+        with self.lock:
+            self.last_error = message
+            state = self.status()
+        self._emit('state', state=state)
+        try:
+            sys.stderr.write(f'[串口桥] {message}\n')
+            sys.stderr.flush()
+        except OSError:
+            pass
+        self.stop.set()
 
     @staticmethod
     def _auto_baud_options(raw):
@@ -223,6 +270,8 @@ class SerialService:
                     transition=self.transition, reconnect=self.reconnect, error=self.last_error,
                     lease_timeout=self.lease_timeout, log_path=str(self.log_path) if self.log_path else None,
                     log_error=self.log_error, log_dropped=self.log_dropped, client_drops=self.client_drops,
+                    rx_bytes_total=self.rx_bytes_total, tx_bytes_total=self.tx_bytes_total,
+                    last_rx_timestamp=self.last_rx_timestamp,
                     auto_baud=self._auto_baud_public(),
                     capabilities=['events', 'jobs', 'exclusive', 'configure', 'device-release', 'auto-baud'])
 
@@ -372,6 +421,7 @@ class SerialService:
                         raise OSError('Driver returned an invalid write count')
                     with self.lock:
                         job['written'] += count
+                        self.tx_bytes_total += count
                         self._emit('tx', data=base64.b64encode(chunk[:count]).decode(), job_id=job['job_id'])
                     if job['chardelay']:
                         job['cancel'].wait(job['chardelay'])
@@ -559,6 +609,15 @@ class SerialService:
                         self._emit('state', state=self.status())
                     except (OSError, serial.SerialException) as exc:
                         self.last_error = str(exc)
+            # Reader watchdog: device.read() is capped near 50 ms, so a healthy
+            # reader beats constantly. A stale beat means the reader thread
+            # died or is wedged inside a read; stop the whole bridge loudly
+            # instead of leaving a connected:true, error:null half-dead shell.
+            if (self.device is not None
+                    and time.monotonic() - self._reader_beat > READER_STALL_SECONDS):
+                self._panic(f'reader thread stalled or died (no progress for '
+                            f'{READER_STALL_SECONDS:g}s); stopping the bridge')
+                break
 
     def _raw_notice(self, text):
         """Inject a human-readable status line into every raw TCP client."""
@@ -618,6 +677,24 @@ class SerialService:
             if request is None:
                 continue
             self.scan_abort.clear()
+            # Handshake first: the reader must be parked OUTSIDE device.read
+            # before the scan touches the device. pyserial win32 read() shares
+            # one OVERLAPPED per Serial object, so a scan read overlapping the
+            # reader's read can wedge both forever (silent RX death). A
+            # timed-out wait means the reader is wedged or dead; scanning
+            # anyway is exactly the race this handshake exists to close.
+            if not self._reader_parked.wait(READER_PAUSE_TIMEOUT):
+                with self.lock:
+                    self.scan_active = False
+                    if self.transition == 'baud_scan':
+                        self.transition = None
+                    self.auto_baud_state['last_reason'] = 'reader_unavailable'
+                    self._suspect_window.clear()
+                    self.changed.notify_all()
+                    self._emit('baud_scan', state='failed', reason='reader_unavailable',
+                               trigger='manual' if request.get('manual') else 'auto')
+                    self._emit('state', state=self.status())
+                continue
             try:
                 self._perform_scan(request)
             except Exception as exc:  # the monitor thread must survive anything
@@ -765,6 +842,13 @@ class SerialService:
         try:
             Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
             with open(self.log_path, 'ab') as stream:
+                # Bracket every session: bytes already in the file (e.g. a
+                # hand-seeded tail of a previous session) must never masquerade
+                # as new bridge output when triaging a dead RX path.
+                stream.write(f"=== bridge session start "
+                             f"{datetime.now():%Y-%m-%d %H:%M:%S} pid={os.getpid()} ===\n"
+                             .encode('utf-8'))
+                stream.flush()
                 while not self.stop.is_set() or not self.log_queue.empty():
                     try:
                         data = self.log_queue.get(timeout=.1)
@@ -779,13 +863,24 @@ class SerialService:
 
     def _reader(self):
         while not self.stop.is_set():
+            self._reader_beat = time.monotonic()
             device = self.device
             if device is None:
+                self._reader_parked.set()
                 self.stop.wait(.05)
                 continue
             if self.scan_active:
-                # The baud scan owns the device (and its read buffer) right now.
+                # The baud scan owns the device (and its read buffer) right
+                # now. Park OUTSIDE device.read and say so: pyserial win32
+                # read() shares one OVERLAPPED per Serial object, so a scan
+                # read that overlaps this thread's read can wedge both
+                # forever. The scan waits for _reader_parked first.
+                self._reader_parked.set()
                 self.stop.wait(.02)
+                continue
+            self._reader_parked.clear()
+            if self.scan_active:  # re-check after clearing: a scan may have started
+                self._reader_parked.set()
                 continue
             try:
                 data = device.read(4096)
@@ -796,6 +891,8 @@ class SerialService:
                 with self.lock:
                     if device is not self.device:
                         continue
+                    self.rx_bytes_total += len(data)
+                    self.last_rx_timestamp = time.time()
                     self._emit('rx', data=base64.b64encode(data).decode())
                     self._auto_baud_feed(data, time.monotonic())
                     if self.log_path:
