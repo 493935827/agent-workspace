@@ -671,8 +671,10 @@ class LogView(QPlainTextEdit):
             return
         keys = {Qt.Key.Key_Return: '\r', Qt.Key.Key_Enter: '\r',
                 Qt.Key.Key_Backspace: '\x7f', Qt.Key.Key_Up: '\x1b[A',
-                Qt.Key.Key_Down: '\x1b[B', Qt.Key.Key_Right: '\x1b[C',
-                Qt.Key.Key_Left: '\x1b[D'}
+                Qt.Key.Key_Down: '\x1b[B'}
+        # ←/→ are intentionally not in the map: the append-only log cannot
+        # render cursor movement, and shells that answer cursor-left with
+        # backspace wiped the echoed input line, so they stay local keys.
         if self.direct and not event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
             value = keys.get(event.key(), event.text())
             if value:

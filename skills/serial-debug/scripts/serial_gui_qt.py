@@ -1292,8 +1292,14 @@ class Workbench(Preview):
                     elif event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
                         return super().eventFilter(watched, event)
                     else:
+                        # ←/→ stay local: the log is append-only and cannot
+                        # render in-line cursor movement, and boards whose
+                        # shell answers cursor-left with backspaces erased the
+                        # echoed input line (预输入) from the display. ↑/↓
+                        # still go out because history recall re-echoes the
+                        # line, which renders correctly as a new line.
                         keys = {Qt.Key.Key_Return:'\r', Qt.Key.Key_Enter:'\r', Qt.Key.Key_Backspace:'\x08',
-                            Qt.Key.Key_Up:'\x1b[A', Qt.Key.Key_Down:'\x1b[B', Qt.Key.Key_Right:'\x1b[C', Qt.Key.Key_Left:'\x1b[D',
+                            Qt.Key.Key_Up:'\x1b[A', Qt.Key.Key_Down:'\x1b[B',
                             Qt.Key.Key_Home:'\x1b[H', Qt.Key.Key_End:'\x1b[F', Qt.Key.Key_Delete:'\x1b[3~',
                             Qt.Key.Key_Insert:'\x1b[2~', Qt.Key.Key_PageUp:'\x1b[5~', Qt.Key.Key_PageDown:'\x1b[6~', Qt.Key.Key_Tab:'\t', Qt.Key.Key_Escape:'\x1b'}
                         value = keys.get(event.key(), event.text())
