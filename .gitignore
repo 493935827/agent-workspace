@@ -21,6 +21,9 @@ __pycache__/
 # --- Node (reserved for later use) ---
 node_modules/
 
+# --- Upstream reference clones (local sync only, never committed) ---
+projects/xerj/
+
 # --- OS ---
 Thumbs.db
 .DS_Store

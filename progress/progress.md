@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-22 23:55（Asia/Hong_Kong）
+最后更新：2026-10-26 16:23（Asia/Hong_Kong）
 
 ## 当前概况
 
@@ -11,7 +11,7 @@
 - agentctl：中文 help、全局入口与 16 个子命令已验证（README；appconfig：应用配置 capture/deploy，CopyQ 已纳管，设置模板 tools/copyq；machine_setup：bootstrap 自动配置机器级环境——AGENT_WORKSPACE_ROOT/用户 PATH/PowerShell 执行策略与 profile 标记块，doctor machine:* 查漂移，本机部署验证）；export 包范围整体排除 projects/cloudmusic-r 逆向工程（不入离线包、不进密钥扫描，import 拒绝包内该前缀条目，dry-run 实测 1834→435 文件）；待修：update 重链用拉取前旧配置（新增启用 skill 需手动 link）、test_discovery 4 项存量失败且污染真实 personal.yaml（已还原；2026-10-21 全量 pytest 再次复现并还原）——均待用户决策。
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release；CopyQ 配置+剪贴板历史已发布于私有 user-data-2026-10-21 Release（agent-software-packages，SHA-256 校验通过，可用 agentctl appconfig deploy 恢复）；本机实装 CopyQ 3.12.0（交付包内为 16.0.0 安装器，升级未做），条目 20 行截断已配置生效。
 - 开发配套与安全边界：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档按敏感数据保管；zoxide v0.10.0 已接入（用法见 AGENTS.md）；`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
-- 环境装机：CLI-Anything——cli-hub v0.4.1 入 PATH（uv tool）、meta-skill 与 7 阶段生成器 skill 已装，未实战；逆向 REA——rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP 207 工具+skill v42），Ghidra 12.1.4+JDK 21 就于 D:\App\tools（SHA-256 校验、doctor 全绿），待重启 Harness 实测 PE。
+- 环境装机：CLI-Anything——cli-hub v0.4.1 入 PATH（uv tool）、meta-skill 与 7 阶段生成器 skill 已装，未实战；逆向 REA——rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP 207 工具+skill v42），Ghidra 12.1.4+JDK 21 就于 D:\App\tools（SHA-256 校验、doctor 全绿），待重启 Harness 实测 PE；本地搜索 XERJ——v1.0.0-rc.99 经镜像下载并 SHA-256 校验装于 %LOCALAPPDATA%\Programs\xerj 已入 PATH（gRPC 8081→9202 规避 McAfee 占用，配置 ~\xerj-data\xerj.toml），服务 127.0.0.1:9200 实测 autoindex/def/BM25/语义/混合/batch/MCP 22 工具/Corpus Hub lz4 全通，上游克隆 projects/xerj 仅本地同步不入库。
 - 个人仓库本地克隆（D:\App）：clash-speed-watch 与 mouse-copy-paste-windows 收录进 zoxide 种子；前者同步至 `8c7d919`（2026-10-21 规则中心迁移，2026-10-22 更新），后者与远程一致（`f022f02`，无落后）；GH 其余仓库无本地克隆。
 - 工程收录：CloudMusic_R（网易云 orpheus 逆向分析工作区）整体入库 `projects/cloudmusic-r` 并已推送（`d95800a`）；cookies_copy.db、webdb_copy.dat（106 MiB 超 GitHub 100 MiB 限制）与 .venv 按仓库铁律/平台限制留在本地不入库，详见子树 .gitignore。
 - Git 推送排查（2026-10-22，已完成）：系统级安全组件按第二参数精确匹配拦截 `git push`（PS 原生注入 argv，Python/cmd/bash/node 取消），非 DSH/agentctl/Git 问题，Git 2.55 安装完整；全路径变通 `git -c alias.push= push …` 已实测并写入 git-delivery 技能；待用户终端验证是否同受影响、离线包（dist/，钉 `da09a49`）搬运内网；细节见[归档](handoff-20261022-153940-git-push-audit.md)。
@@ -22,6 +22,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-26 / XERJ 本地搜索引擎装机与实测（session ID 不可见） | v1.0.0-rc.99 经镜像下载并 SHA-256 校验安装、入 PATH；8081 被 McAfee 占用改 9202；实测 autoindex/def/BM25/语义/混合/batch/MCP(22 工具)/hub lz4 全通（默认语义 embedder 为离线词法，弱）；上游克隆 projects/xerj 本地同步（.gitignore 不入库）；MCP 接入 dsh 未做待用户决策 | [XERJ 装机与实测](handoff-20261026-162219-xerj-install.md) |
 | 2026-10-22 / CloudMusic_R 工程收录 agent-workspace（`session-e5c1492fa74d`） | 全工程 1401 文件约 130MB 原样入库 projects/cloudmusic-r 并推送 `d95800a`；cookies/webdb/venv 三类按铁律与 GitHub 100MiB 限制本地保留；离线包体积影响待决策 | [CloudMusic_R 工程收录](handoff-20261022-172837-cloudmusic-r-ingest.md) |
 | 2026-10-22 / Git push 定向拦截排查（session ID 不可见） | 定位系统级 git push 拦截（第二参数匹配）并纠正「安装损坏」误诊；`-c` 变通写入 git-delivery 技能；四笔提交推送（`3672f12` 经 GitHub API 复刻）；离线包重打待搬运内网；用户终端是否受影响未验证 | [Git push 拦截排查与分发](handoff-20261022-153940-git-push-audit.md) |
 | 2026-10-22 / serial-gui 拖拽死区修复（续 `session-86feed6014c3`） | 菜单栏空白死区 + 标签行空白修复并推送（`998c023`），`drag_repro7` 决定性回归 + 118 测试绿；实机人工验收待做；归档在 serial-debug skill 侧 | [Titlebar drag fix（skill 归档）](../skills/serial-debug/progress/handoff-20261022-111757-titlebar-drag-fix.md) |
