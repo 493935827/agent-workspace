@@ -122,7 +122,7 @@ agentctl export --with-npm           # 附带 npm pack 的包（有 package.json
 agentctl export --dry-run            # 预览文件清单，不落盘
 ```
 
-导出规则：优先取 **git 已跟踪文件**（自动尊重 .gitignore）；`.env` / `local.yaml` / 生成目录双重排除；所有文本文件做 secret 模式扫描，命中即**拒绝导出**（只报文件:行号，不打印内容）；生成 `manifest.json` + `SHA256SUMS`（覆盖包内每个文件）。
+导出规则：优先取 **git 已跟踪文件**（自动尊重 .gitignore）；`.env` / `local.yaml` / 生成目录双重排除，`projects/cloudmusic-r`（CloudMusic_R 逆向工程，内网用不上）整体排除在包外（import 也会拒绝包内该前缀的条目）；所有文本文件做 secret 模式扫描，命中即**拒绝导出**（只报文件:行号，不打印内容）；生成 `manifest.json` + `SHA256SUMS`（覆盖包内每个文件）。
 
 ## 8. 内网导入方法
 

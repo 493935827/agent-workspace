@@ -11,6 +11,9 @@ Bundle layout (zip):
 Safety rules:
   - .env / local.yaml / backups / dist / packages / manifests never enter
     a bundle, regardless of how the file list was collected
+  - DENY_PREFIXES paths are outside the bundle scope entirely (never
+    collected, never secret-scanned); import refuses bundle entries
+    under them so the local copy stays authoritative
   - every exported text file is scanned for secret-looking content and
     export refuses to continue on a hit (reports file:line, never the value)
   - import verifies SHA256SUMS before touching anything and refuses
@@ -42,6 +45,15 @@ DENY_NAMES = {".env", "local.yaml"}
 DENY_DIRS = {".git", ".venv", "__pycache__", "backups", "dist", "packages",
              "manifests", "node_modules", ".pytest_cache", ".hatch", ".agentctl"}
 DENY_SUFFIXES = (".pyc", ".pyo", ".zip", ".egg-info")
+
+# Relative-POSIX path prefixes (workspace-root anchored) that sit outside
+# the bundle scope entirely. Used for content that is legitimately tracked
+# in git but must never ship offline: the CloudMusic_R reverse-engineering
+# workspace (projects/cloudmusic-r) trips the private-key scan with vendor
+# JS chunks and is of no use on intranet machines. Deliberate hard-coded
+# list, auditable in git; import refuses bundle entries under these
+# prefixes instead of silently overwriting the local copy.
+DENY_PREFIXES = ("projects/cloudmusic-r/",)
 
 # Lines ending with this marker are exempt from the secret scan; used for
 # deliberate canary samples in tests. Auditable: grep for the marker.
@@ -77,6 +89,11 @@ def _denied(parts: list[str]) -> bool:
     return parts[-1].endswith(DENY_SUFFIXES)
 
 
+def _denied_prefix(parts: list[str]) -> bool:
+    rel = "/".join(parts)
+    return any(rel.startswith(prefix) for prefix in DENY_PREFIXES)
+
+
 def collect_files(root: Path) -> tuple[list[Path], str]:
     """Files that go into the bundle. Returns (paths, mode).
 
@@ -84,14 +101,15 @@ def collect_files(root: Path) -> tuple[list[Path], str]:
     (manual exclusion rules, for workspaces not yet under git).
     """
     if gitops.available() and gitops.is_repo(root) and gitops.has_commits(root):
-        rels = [p for p in gitops.tracked_files(root) if not _denied(p.split("/"))]
+        rels = [p for p in gitops.tracked_files(root)
+                if not _denied(p.split("/")) and not _denied_prefix(p.split("/"))]
         return [root / r for r in rels], "git"
     rels: list[str] = []
     for p in sorted(root.rglob("*")):
         if not p.is_file():
             continue
         rel = p.relative_to(root)
-        if _denied(list(rel.parts)):
+        if _denied(list(rel.parts)) or _denied_prefix(list(rel.parts)):
             continue
         rels.append(rel.as_posix())
     return [root / r for r in rels], "walk"
@@ -346,6 +364,10 @@ def _extract_bundle(root: Path, bundle_path: Path) -> None:
             parts = safe_zip_parts(info.filename)
             if parts is None:
                 raise BundleError(f"Unsafe path in bundle: {info.filename}")
+            if parts[0] == "workspace" and len(parts) > 1 and _denied_prefix(parts[1:]):
+                raise BundleError(
+                    "Bundle contains path excluded from export scope: "
+                    + info.filename)
             if any(p in DENY_NAMES for p in parts):
                 raise BundleError(f"Bundle contains forbidden file: {info.filename}")
             top = parts[0]

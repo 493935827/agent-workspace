@@ -115,3 +115,40 @@ def test_export_dry_run_writes_nothing(ws, tmp_path):
     export_bundle(ws, output=out, dry_run=True)
     assert not out.exists()
     assert not (ws / "dist").exists() or not any((ws / "dist").iterdir())
+
+
+def test_export_excludes_reverse_engineering_project(ws, tmp_path):
+    # CloudMusic_R / orpheus 逆向工作区整体在包范围之外：既不入包，
+    # 密钥扫描也不应再扫到其 vendor JS chunk（真实误报场景，无 canary 标记）
+    chunk = (ws / "projects" / "cloudmusic-r" / "orpheus" / "pub" / "hybrid"
+             / "89.chunk.83304b1.js")
+    chunk.parent.mkdir(parents=True)
+    chunk.write_text("var k='-----BEGIN RSA PRIVATE KEY-----';\n", encoding="utf-8")  # agentctl-canary
+    (ws / "projects" / "cloudmusic-r" / "README.md").write_text(
+        "analysis notes\n", encoding="utf-8")
+
+    out = export_bundle(ws, output=tmp_path / "b.zip")  # must not raise
+
+    with zipfile.ZipFile(out) as zf:
+        names = zf.namelist()
+    assert not any(n.startswith("workspace/projects/") for n in names)
+    assert any(n.startswith("workspace/skills/") for n in names)
+
+
+def test_import_refuses_bundle_entries_under_excluded_prefix(ws, tmp_path):
+    # 排除前缀对 import 同样生效：包内出现该前缀条目时拒绝而非覆盖本地副本
+    out = export_bundle(ws, output=tmp_path / "b.zip")
+    src = tmp_path / "rezip"
+    with zipfile.ZipFile(out) as zf:
+        zf.extractall(src)
+    rogue = src / "workspace" / "projects" / "cloudmusic-r" / "x.js"
+    rogue.parent.mkdir(parents=True)
+    rogue.write_text("payload\n", encoding="utf-8")
+    out2 = tmp_path / "b2.zip"
+    with zipfile.ZipFile(out2, "w") as zf:
+        for p in sorted(src.rglob("*")):
+            if p.is_file():
+                zf.write(p, p.relative_to(src).as_posix())
+
+    with pytest.raises(BundleError, match="projects/cloudmusic-r"):
+        import_bundle(ws, out2)
