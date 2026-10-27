@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QScrollArea
+from PySide6.QtWidgets import QApplication, QCheckBox, QPushButton, QScrollArea, QToolButton
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 
@@ -61,6 +61,33 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual([w.text() for w in probe], ['自动重扫允许主动探测'])
         self.assertEqual([c.text() for c in baud_rows[0].findChildren(QPushButton)],
                          ['在线检测波特率'])
+
+    def test_sections_collapsed_by_default_and_toggle(self):
+        """五个分区默认收起（像「设备信息」「命令宏」标签那样先折叠），点标题展开/再收起。"""
+        window = self.make_window()
+        self.addCleanup(window.close)
+        titles = ['显示', '日志文件', '波特率', '提醒', '共享串口桥']
+        self.assertEqual(list(window.settings_section_chrome), titles)
+        for title in titles:
+            header, body = window.settings_section_chrome[title]
+            self.assertIsInstance(header, QToolButton)
+            self.assertEqual(header.objectName(), 'settingsSectionHeader')
+            self.assertEqual(header.text(), title)
+            self.assertTrue(header.isCheckable())
+            self.assertTrue(body.isHidden(), f'「{title}」分区默认应收起')
+            self.assertEqual(header.property('iconName'), 'chevron_right')
+        # 展开「显示」后内容可见、箭头向下；其他分区不受影响。
+        header, body = window.settings_section_chrome['显示']
+        header.setChecked(True)
+        self.assertFalse(body.isHidden())
+        self.assertEqual(header.property('iconName'), 'chevron_down')
+        self.assertTrue(window.settings_section_chrome['日志文件'][1].isHidden())
+        # 再收起：内容隐藏、箭头还原，已展开的其他分区保持展开。
+        window.settings_section_chrome['日志文件'][0].setChecked(True)
+        header.setChecked(False)
+        self.assertTrue(body.isHidden())
+        self.assertEqual(header.property('iconName'), 'chevron_right')
+        self.assertFalse(window.settings_section_chrome['日志文件'][1].isHidden())
 
     def test_more_menu_stays_slim(self):
         window = self.make_window()

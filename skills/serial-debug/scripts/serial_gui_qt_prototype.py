@@ -104,6 +104,7 @@ ICON_PATHS = {
     'down': '<path d="m7 10 5 5 5-5"/>',
     'chevron_left': '<path d="m15 6-6 6 6 6"/>',
     'chevron_right': '<path d="m9 6 6 6-6 6"/>',
+    'chevron_down': '<path d="m6 9 6 6 6-6"/>',
     'history': '<path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/>',
     'refresh': '<path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/>',
 }
@@ -1146,23 +1147,46 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.inspector.addTab(macro_tab, '命令宏')
 
     def _settings_section(self, layout, title, first=False):
-        """设置页分区：小节标题 + 内容槽 + 1px 分隔线；返回内容布局供调用方填充。"""
+        """设置页可折叠分区：标题行带箭头，点击展开/收起（默认收起，像「设备信息」「命令宏」
+        标签那样先折叠、按需展开）；返回内容布局供调用方填充。
+        标题按钮与内容容器登记在 settings_section_chrome[title] = (header, body)。"""
         if not first:
             layout.addSpacing(4)
-        layout.addWidget(label(title, 'heading'))
-        section = QVBoxLayout()
+        header = QToolButton()
+        header.setObjectName('settingsSectionHeader')
+        header.setText(title)
+        header.setAccessibleName(f'{title}分区')
+        header.setToolTip(f'展开或折叠「{title}」设置')
+        header.setCursor(Qt.CursorShape.PointingHandCursor)
+        header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        header.setProperty('iconName', 'chevron_right')
+        header.setIcon(icon('chevron_right'))
+        body = QWidget()
+        section = QVBoxLayout(body)
         section.setContentsMargins(0, 0, 0, 0)
         section.setSpacing(3)
-        layout.addLayout(section)
+        layout.addWidget(header)
+        layout.addWidget(body)
         divider = QFrame()
         divider.setObjectName('settingsDivider')
         divider.setFixedHeight(1)
         layout.addWidget(divider)
+
+        def toggle(expanded):
+            body.setVisible(expanded)
+            name = 'chevron_down' if expanded else 'chevron_right'
+            header.setProperty('iconName', name)
+            header.setIcon(icon(name, self.c['text_secondary'] if hasattr(self, 'c') else None))
+
+        header.setCheckable(True)
+        header.toggled.connect(toggle)
+        body.setVisible(False)
+        self.settings_section_chrome[title] = (header, body)
         return section
 
     def _build_log_settings_tab(self):
         # 分区式设置页：显示 / 日志文件 / 波特率 / 提醒 / 共享串口桥，
-        # 每节内容装进独立布局，Workbench 通过 settings_sections 往对应节插入控件。
+        # 每节是一个可折叠分区（默认收起），Workbench 通过 settings_sections 往对应节插入控件。
         scroll = QScrollArea()
         scroll.setObjectName('settingsScroll')
         scroll.setWidgetResizable(True)
@@ -1175,6 +1199,7 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         settings_layout.setContentsMargins(10, 8, 10, 8)
         settings_layout.setSpacing(4)
         self.settings_sections = {}
+        self.settings_section_chrome = {}
         # —— 显示 ——
         display = self._settings_section(settings_layout, '显示', first=True)
         self.timestamps = QCheckBox('显示时间戳')
@@ -1679,6 +1704,7 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
             QScrollArea#settingsScroll {{ background: {c['canvas_background']}; border: none; }}
             #settingsViewport, #settingsBody {{ background: {c['canvas_background']}; }}
             #settingsDivider {{ background: {c['border_subtle']}; border: none; }}
+            #settingsSectionHeader {{ font-size: 7pt; font-weight: 600; color: {c['text_primary']}; }}
             #top, #tabs {{ border-bottom: 1px solid {c['border_subtle']}; }}
             #status {{ border-top: 1px solid {c['border_subtle']}; }}
             #logToolbar {{ background: {c['canvas_background']}; border-bottom: 1px solid {c['border_subtle']}; }}
