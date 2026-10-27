@@ -5,3 +5,6 @@ windows/logs/
 windows/serial_config.local.psd1
 scripts/serial_qt_settings*.json
 scripts/logs/
+build/
+dist/
+*.spec

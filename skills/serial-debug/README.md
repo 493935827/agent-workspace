@@ -30,6 +30,8 @@ python scripts/serial_gui_qt.py
 
 也可以双击 `windows/serial_gui.cmd` 启动工作台。工作台关闭只断开自己的会话，不会停止后台服务。
 
+**免安装单文件版**：`dist\SerialWorkbench.exe`（PyInstaller 打包，无需 Python 环境，可直接拷到其他 Windows 电脑）。设置、宏和日志默认保存在 exe 同目录（exe 目录不可写时自动回退到 `%APPDATA%\SerialWorkbench`）。重新打包：双击 `windows\build_exe.cmd`（需 `.venv` 里装有 PyInstaller：`uv pip install pyinstaller`）。
+
 ### 3. 连接设备
 
 工作台有两种用法：

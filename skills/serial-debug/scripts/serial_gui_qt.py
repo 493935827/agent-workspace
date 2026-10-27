@@ -6,8 +6,10 @@ import base64
 import collections
 import codecs
 import json
+import os
 import queue
 import re
+import sys
 import threading
 import time
 from datetime import datetime
@@ -28,6 +30,25 @@ from serial_baud_scan import (COOLDOWN_FAIL, COOLDOWN_SUCCESS, DEFAULT_BAUDS, MO
 from serial_gui_qt_prototype import Preview, icon, parse_hex, row, set_role
 from serial_service_client import Client as ServiceClient, RemoteError as ServiceError
 
+def _app_dir() -> Path:
+    """用户数据目录（设置/宏/日志）。
+
+    源码运行取脚本目录，行为与历史版本一致；打包成 exe 后 __file__ 指向
+    临时解压目录（退出即删），因此改取 exe 同目录，不可写时回退 %APPDATA%。
+    """
+    if not getattr(sys, 'frozen', False):
+        return Path(__file__).resolve().parent
+    exe_dir = Path(sys.executable).resolve().parent
+    probe = exe_dir / '.serial_workbench_write_test'
+    try:
+        probe.touch()
+        probe.unlink()
+        return exe_dir
+    except OSError:
+        appdata = Path(os.environ.get('APPDATA') or Path.home()) / 'SerialWorkbench'
+        appdata.mkdir(parents=True, exist_ok=True)
+        return appdata
+
 TIME_FORMATS = ('时分秒', '时分秒.毫秒', '日期 时分秒', '日期 时分秒.毫秒')
 DEFAULT_OPTIONS = dict(timestamps=True, time_format=TIME_FORMATS[1], wrap=False,
     show_rx=True, show_tx=True, show_keybytes=False, display_mode='ASCII', log_level=0,
@@ -35,7 +56,7 @@ DEFAULT_OPTIONS = dict(timestamps=True, time_format=TIME_FORMATS[1], wrap=False,
     case=False, whole=False, tags=[], paused=False, save_policy='手动保存',
     log_timestamp=True, log_format=TIME_FORMATS[1], log_append=False,
     log_encoding='UTF-8', log_newline='LF', log_auto=False,
-    log_directory=str(Path(__file__).with_name('logs')),
+    log_directory=str(_app_dir() / 'logs'),
     autobaud_monitor=True, autobaud_probe=False)
 
 # 每个会话的屏幕缓冲上限；LogView.setMaximumBlockCount(5000) 与此保持一致。
@@ -523,7 +544,7 @@ class Workbench(Preview):
                  port_provider=list_ports.comports, service_client_factory=ServiceClient, **kwargs):
         self.ready = False
         self.persist = persist
-        self.settings_path = Path(settings_path or Path(__file__).with_name('serial_qt_settings.json'))
+        self.settings_path = Path(settings_path or _app_dir() / 'serial_qt_settings.json')
         self.macros_path = self.settings_path.with_name(self.settings_path.stem + '_macros.json')
         self.serial_factory = serial_factory
         self.port_provider = port_provider
@@ -2143,7 +2164,7 @@ class Workbench(Preview):
                 self.named_macros = {m['name']:m['body'] for m in items}
             if not self.settings_path.exists():
                 # Read legacy named macros without changing the original file.
-                legacy = Path(__file__).with_name('serial_macros.json')
+                legacy = _app_dir() / 'serial_macros.json'
                 if not self.macros_path.exists() and legacy.exists():
                     items = json.loads(legacy.read_text('utf-8'))
                     if isinstance(items, dict) and all(isinstance(k,str) and isinstance(v,str) for k,v in items.items()):
