@@ -1,6 +1,6 @@
 # 项目进度
 
-最后更新：2026-10-27 16:09（Asia/Shanghai）
+最后更新：2026-10-27 16:12（Asia/Shanghai）
 
 ## 当前概况
 
@@ -20,6 +20,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-10-27 / 双桥/重数据流卡顿：复现与根因定位（修复未实施） | 双桥本身无罪（线速下 单桥/双桥/双桥+GUI RTT 仅 +10~15ms、CPU≈0）；决定性复现「重数据流 + 其他操作」：切会话标签每次冻结主线程 2.6s（带搜索 10.7s），期间事件队列爆满丢数据；根因 = GUI `rerender()` 全量重画（5000 块≈0.6-3s/次）+ `find()` 全文档扫描且每条 RX 触发；A/B 排除滚动条单变量；修复方向已列，待确认实施；复现脚本 `%TEMP%\serial_repro\two_bridge_lag\` | [Two-bridge lag repro](handoff-20261027-1610-two-bridge-lag-repro.md) |
 | 2026-10-27 / 关窗竞态（板机 COM6 桥自退）无硬件复现 | 本仓库 HEAD 代码 + 蓝牙串口当真实 win32 设备，6/6 复现 close() vs read() OVERLAPPED 置 None 竞态（TypeError byref / AttributeError 两种崩点 → 5s 看门狗整桥退出，与板机事故序列一致）；最小修复移植后同压力 30s/6030 轮 reconnect 存活；修复待板机回流，红/绿脚本（`%TEMP%\serial_repro\close_race\`）可作回归基准 | [Close-race repro](handoff-20261027-160900-close-race-repro.md) |
 | 2026-10-23 / 直发模式 ←/→ 预输入回显消失修复 | 根因：追加式日志无法呈现行内光标移动，而直发模式把 ←/→ 转成 `ESC[D/C` 发给设备，仅回显/仅历史型 shell（atom>>）以退格应答光标左移、GUI 擦除逻辑抹掉回显输入行；修复为 ←/→ 不发送仅本地光标、↑/↓ 历史与编辑键逐字节保留；+4 回归（先红后绿）全套 127 项绿；`476f765`/`941cd34` 已推送；实机验收待板子 | [Direct arrow fix](handoff-20261023-152828-direct-arrow-fix.md) |
 | 2026-10-23 / 桥读侧静默死亡：静态定位与修复（另一台电脑报告，板子占用） | 根因定位：被动扫描线程与 `_reader` 并发 `device.read`（win32 共享 OVERLAPPED 可永久卡死读线程，探针 `max_active=2` 实证）；修复：扫描等 reader 停车握手 + 线程死亡上浮 `status.error` + 5s 看门狗整桥退出 + `rx/tx_bytes_total`/`last_rx_timestamp` + 日志会话头；+5 回归（扫描互斥先红后绿）全套 123 项绿；shared-bridge/troubleshooting 同步；`403cb92`/`080692c` 已推送；真机验收与报告机取证待做 | [Silent RX death fix](handoff-20261023-144215-silent-rx-death.md) |
