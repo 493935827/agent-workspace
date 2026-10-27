@@ -1,6 +1,6 @@
 # Serial Workbench 统一风格（Design System）
 
-最后更新：2026-10-21 · 适用于 `scripts/serial_gui_qt.py` 工作台与 `scripts/serial_gui_qt_prototype.py` 视觉外壳
+最后更新：2026-10-27 · 适用于 `scripts/serial_gui_qt.py` 工作台与 `scripts/serial_gui_qt_prototype.py` 视觉外壳
 
 ## 一句话定位
 
@@ -32,6 +32,7 @@
 - 三栏结构：设备栏（可折叠至细条，Ctrl+B）/ 主区 / 检查器（Ctrl+Shift+B），分隔线可拖动。
 - 紧凑 DevTools 密度：标题栏 30px、日志工具栏 28px、状态栏 23px、主按钮 min-height 16px（均按缩放比例联动）。
 - 圆角 4px、边框 1px；用留白和层级区分区域，**不**给每个分组包卡片边框。
+- **信息架构（2026-10-27 重组）**：一个动作一个家——高频动作进日志工具栏（清屏/保存/自动滚动/暂停，图标化），配置进检查器「设置」页分区（显示 / 日志文件 / 波特率 / 提醒 / 共享串口桥，heading+1px 分隔线，滚动容器），文件动作归「文件」菜单，「更多」只留会话与界面入口。禁止往「更多」菜单或设置页里继续平铺新功能；新配置先找对应分区，没有分区再建分区。守卫测试 `tests/test_ui_settings_layout.py`。
 
 ## 状态与交互
 

@@ -23,7 +23,7 @@ from PySide6.QtGui import (QAction, QColor, QFont, QKeySequence, QPalette,
                            QTextCharFormat, QTextCursor, QTextDocument, QTextBlockFormat, QPainter, QIcon, QPixmap, QMouseEvent, QFocusEvent, QShortcut, QCursor)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
-    QPlainTextEdit, QPushButton, QSizePolicy, QSplitter, QStackedWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSplitter, QStackedWidget,
     QStyleFactory, QTextEdit, QVBoxLayout, QWidget, QMessageBox, QToolButton, QMenuBar, QMenu, QTabBar, QTabWidget, QFormLayout, QFileDialog, QInputDialog, QLayout, QDialog, QDialogButtonBox)
 
 
@@ -958,13 +958,6 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.subtitle = label('主控调试 · USB Serial Port', 'muted')
         identity_layout.addWidget(self.subtitle)
         self.connect_btn = tool('disconnect', '断开连接', self.toggle_connection, True)
-        self.clear_btn = tool('trash', '清屏', self.clear_log, True)
-        self.clear_btn.setToolTip('清屏 (Ctrl+K)')
-        self.save_btn = tool('save', '保存日志', self.save_log, True)
-        self.save_btn.setToolTip('保存日志 (Ctrl+S)')
-        self.pause_button = tool('pause', '暂停接收', self.toggle_pause, True)
-        self.pause_button.setCheckable(True)
-        self.pause_button.setProperty('pauseAction', True)
         self.more = tool('more', '更多', lambda: None, True)
         self.more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         more_menu = QMenu(self.more)
@@ -974,8 +967,7 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         more_menu.addSeparator()
         more_menu.addAction('关于预览', self.about)
         self.more.setMenu(more_menu)
-        header = row(identity, None, self.connect_btn, self.clear_btn, self.save_btn,
-                     self.pause_button, self.more, margins=(10, 6, 6, 4), spacing=2)
+        header = row(identity, None, self.connect_btn, self.more, margins=(10, 6, 6, 4), spacing=2)
         header.setFixedHeight(52)
         content.addWidget(header)
         # Log toolbar: search, type filters, follow and pause — small on purpose.
@@ -1011,7 +1003,16 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.pause_tool.setCheckable(True)
         self.pause_tool.setProperty('pauseAction', True)
         self.pause_tool.setToolTip('暂停接收：仅冻结日志显示，数据继续记录，恢复后补齐')
-        toolbar = row(self.search, self.match_count, chips, None, self.auto_scroll, self.pause_tool,
+        self.clear_btn = tool('trash', '清屏', self.clear_log)
+        self.clear_btn.setToolTip('清屏 (Ctrl+K)')
+        self.save_btn = tool('save', '保存日志', self.save_log)
+        self.save_btn.setToolTip('保存日志 (Ctrl+S)')
+        # 右侧动作组图标化：给过滤 chip 留宽度，悬浮提示与 accessibleName 仍由 tool() 提供。
+        for t in (self.clear_btn, self.save_btn, self.auto_scroll, self.pause_tool):
+            t.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            t.setFixedSize(28, 24)
+        toolbar = row(self.search, self.match_count, chips, None, self.clear_btn, self.save_btn,
+                      self.auto_scroll, self.pause_tool,
                       margins=(6, 2, 8, 2), spacing=6)
         toolbar.setObjectName('logToolbar')
         toolbar.setFixedHeight(28)
@@ -1144,12 +1145,38 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         ml.addWidget(self.expand)
         self.inspector.addTab(macro_tab, '命令宏')
 
+    def _settings_section(self, layout, title, first=False):
+        """设置页分区：小节标题 + 内容槽 + 1px 分隔线；返回内容布局供调用方填充。"""
+        if not first:
+            layout.addSpacing(4)
+        layout.addWidget(label(title, 'heading'))
+        section = QVBoxLayout()
+        section.setContentsMargins(0, 0, 0, 0)
+        section.setSpacing(3)
+        layout.addLayout(section)
+        divider = QFrame()
+        divider.setObjectName('settingsDivider')
+        divider.setFixedHeight(1)
+        layout.addWidget(divider)
+        return section
+
     def _build_log_settings_tab(self):
-        settings = QWidget()
-        settings_layout = QVBoxLayout(settings)
+        # 分区式设置页：显示 / 日志文件 / 波特率 / 提醒 / 共享串口桥，
+        # 每节内容装进独立布局，Workbench 通过 settings_sections 往对应节插入控件。
+        scroll = QScrollArea()
+        scroll.setObjectName('settingsScroll')
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.viewport().setObjectName('settingsViewport')
+        body = QWidget()
+        body.setObjectName('settingsBody')
+        scroll.setWidget(body)
+        settings_layout = QVBoxLayout(body)
         settings_layout.setContentsMargins(10, 8, 10, 8)
         settings_layout.setSpacing(4)
-        settings_layout.addWidget(label('日志显示设置', 'heading'))
+        self.settings_sections = {}
+        # —— 显示 ——
+        display = self._settings_section(settings_layout, '显示', first=True)
         self.timestamps = QCheckBox('显示时间戳')
         self.timestamps.setChecked(True)
         self.timestamps.toggled.connect(self.rerender)
@@ -1164,7 +1191,7 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.show_keybytes = QCheckBox('显示按键字节')
         self.show_keybytes.setToolTip('直接发送模式下逐键打印 TX 按键字节（如 按键字节 08 \'\\x08\'）；默认关闭，设备回显已能看到按键效果，控制键回显属于提示符之间的噪声')
         for checkbox in (self.timestamps, self.wrap, self.show_rx, self.show_tx, self.show_keybytes):
-            settings_layout.addWidget(checkbox)
+            display.addWidget(checkbox)
         self.display_mode = QComboBox()
         self.display_mode.addItems(['ASCII', 'HEX'])
         self.display_mode.setAccessibleName('日志显示格式')
@@ -1176,16 +1203,26 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.rx_encoding = QComboBox()
         self.rx_encoding.addItems(['UTF-8', 'GBK'])
         self.rx_encoding.setAccessibleName('接收编码')
+        for name, combo in (('显示格式', self.display_mode), ('日志等级', self.log_level),
+                            ('接收编码', self.rx_encoding)):
+            display.addWidget(row(label(name, 'muted'), None, combo, spacing=4))
+        self.settings_sections['display'] = display
+        # —— 日志文件 ——
+        files = self._settings_section(settings_layout, '日志文件')
         self.save_policy = QComboBox()
         self.save_policy.addItems(['手动保存', '会话结束自动保存'])
         self.save_policy.setAccessibleName('日志保存策略')
-        for name, combo in (('显示格式', self.display_mode), ('日志等级', self.log_level),
-                            ('编码', self.rx_encoding), ('保存策略', self.save_policy)):
-            settings_layout.addWidget(row(label(name, 'muted'), None, combo, spacing=4))
-        settings_layout.addSpacing(6)
-        settings_layout.addWidget(label('编码与保存策略将在接入真实串口后生效。', 'muted'))
+        files.addWidget(row(label('保存策略', 'muted'), None, self.save_policy, spacing=4))
+        self.settings_sections['files'] = files
+        # —— 波特率 / 提醒 / 共享串口桥：内容由 Workbench 按会话能力插入 ——
+        for name in ('波特率', '提醒', '共享串口桥'):
+            self.settings_sections[name] = self._settings_section(settings_layout, name)
+        settings_layout.addSpacing(4)
+        self.settings_note = label('编码与保存策略将在接入真实串口后生效。', 'muted')
+        self.settings_note.setWordWrap(True)
+        settings_layout.addWidget(self.settings_note)
         settings_layout.addStretch()
-        self.inspector.addTab(settings, '日志设置')
+        self.inspector.addTab(scroll, '设置')
 
     def _build_strip(self, icon_name, tooltip, callback, object_name):
         strip = QWidget()
@@ -1639,6 +1676,9 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
             #windowFrame[windowActive="true"] {{ border-color: {c['focus_border']}; }}
             #windowFrame[maximized="true"] {{ border: none; }}
             #main, #inspector::pane {{ background: {c['canvas_background']}; }}
+            QScrollArea#settingsScroll {{ background: {c['canvas_background']}; border: none; }}
+            #settingsViewport, #settingsBody {{ background: {c['canvas_background']}; }}
+            #settingsDivider {{ background: {c['border_subtle']}; border: none; }}
             #top, #tabs {{ border-bottom: 1px solid {c['border_subtle']}; }}
             #status {{ border-top: 1px solid {c['border_subtle']}; }}
             #logToolbar {{ background: {c['canvas_background']}; border-bottom: 1px solid {c['border_subtle']}; }}
@@ -2029,16 +2069,12 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
 
     def toggle_pause(self, paused=None):
         self.paused = not self.paused if paused is None else bool(paused)
-        self.pause_button.blockSignals(True)
-        self.pause_button.setChecked(self.paused)
-        self.pause_button.blockSignals(False)
         self.pause_tool.blockSignals(True)
         self.pause_tool.setChecked(self.paused)
         self.pause_tool.blockSignals(False)
-        for button in (self.pause_button, self.pause_tool):
-            button.setText('恢复接收' if self.paused else '暂停接收')
-            button.setProperty('iconName', 'play' if self.paused else 'pause')
-            button.setIcon(icon('play' if self.paused else 'pause'))
+        self.pause_tool.setText('恢复接收' if self.paused else '暂停接收')
+        self.pause_tool.setProperty('iconName', 'play' if self.paused else 'pause')
+        self.pause_tool.setIcon(icon('play' if self.paused else 'pause'))
         if self.paused:
             self.pending = 0
             self.pause_badge.setText('已暂停')

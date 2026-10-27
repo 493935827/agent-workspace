@@ -37,7 +37,7 @@ python scripts/serial_gui_qt.py
 工作台有两种用法：
 
 - **人工直连**：只做人工调试时，在会话中直接选择串口与波特率连接；工作台进程独占该 COM 口。
-- **共享服务**：人工与 Agent 共用同一串口时，启动共享服务（`serial_service_cli.py`），再在工作台菜单选择「更多 → 连接共享服务…」，填写服务地址（默认 `127.0.0.1`）、控制端口（默认 `8889`）、目标串口和波特率。服务独占物理串口，工作台作为观察/控制客户端接入；这与 miniterm、`serial_control.py` 使用同一个中间层。设置页的「共享串口桥」分组集中了这些按钮：「连接共享服务…」「终止 Agent 并接管」「停止桥并释放端口」；一键停止会让桥进程退出并释放串口，之后其他工具可以直接打开该端口。
+- **共享服务**：人工与 Agent 共用同一串口时，启动共享服务（`serial_service_cli.py`），再在工作台右侧「设置」页「共享串口桥」分区选择「连接共享服务…」，填写服务地址（默认 `127.0.0.1`）、控制端口（默认 `8889`）、目标串口和波特率。服务独占物理串口，工作台作为观察/控制客户端接入；这与 miniterm、`serial_control.py` 使用同一个中间层。「共享串口桥」分区集中了这些按钮：「连接共享服务…」「终止 Agent 并接管」「停止桥并释放端口」；一键停止会让桥进程退出并释放串口，之后其他工具可以直接打开该端口。
 
 同一 COM 口只能被一方持有：共享服务已连接设备时，不要再直连同一串口；反之直连时也无法启动共享服务。
 
@@ -45,7 +45,7 @@ python scripts/serial_gui_qt.py
 
 工作台支持编码（UTF-8/GBK）、换行（CR/LF/CRLF）、文本与 HEX 显示、多串口标签、逐行宏、ANSI 渲染、持续日志、条件提醒和搜索。接收显示 `[RX]`，实际写入显示 `[TX]`；TX 表示驱动已接受字节，不表示设备已经执行命令。
 
-「打开日志文件…」（文件菜单 Ctrl+O、「更多」菜单与设置页均有入口）可以把保存过的日志读回当前会话查看：自动识别行首时间戳与编码，识别结果在 `SYS` 摘要中说明。时间戳支持 `[日期 时间]`、`日期 时间`、`[时间]`、`时间` 四类行首形态（秒后允许 `.`/`,` 毫秒；仅时间没有日期时按文件日期补齐），编码按 UTF-8 → UTF-16(BOM) → GBK 顺序探测。有时间戳的文件中，无时间戳的行并入上一条记录（与持续日志的折行保存一致）；完全无时间戳的文件逐行成条并按文件修改时间标注。导入内容以 `[LOG]` 标签显示，不写入正在进行的持续日志文件，也不计入收发统计；超过屏幕缓冲（5000 条）时保留最近部分并提示。
+「打开日志文件…」（文件菜单 Ctrl+O 与设置页「日志文件」分区均有入口）可以把保存过的日志读回当前会话查看：自动识别行首时间戳与编码，识别结果在 `SYS` 摘要中说明。时间戳支持 `[日期 时间]`、`日期 时间`、`[时间]`、`时间` 四类行首形态（秒后允许 `.`/`,` 毫秒；仅时间没有日期时按文件日期补齐），编码按 UTF-8 → UTF-16(BOM) → GBK 顺序探测。有时间戳的文件中，无时间戳的行并入上一条记录（与持续日志的折行保存一致）；完全无时间戳的文件逐行成条并按文件修改时间标注。导入内容以 `[LOG]` 标签显示，不写入正在进行的持续日志文件，也不计入收发统计；超过屏幕缓冲（5000 条）时保留最近部分并提示。
 
 共享服务会话中，Agent 通过服务发送的命令会以 `[TX]` 显示在人工端，双方看到同一份控制台内容。
 
@@ -67,7 +67,7 @@ python --% scripts/serial_control.py send.hex --params "{\"data\":\"AA 55 01\"}"
 
 This repository owns one physical serial port in a background service. Legacy `bridge`, `connect`, `send`, and `socket://` clients continue to use the raw TCP endpoint. The Qt workbench (`scripts/serial_gui_qt.py`) is the human-facing console: it can drive a COM port directly for manual debugging, or attach to the managed service as a shared client with the same protocol as `scripts/serial_service_client.py` (protocol version 1).
 
-Install on Windows with `python -m pip install -r windows/requirements.txt`. On uv-managed Pythons where `pip install` fails with `externally-managed`, create a repo-local virtual environment instead (`uv venv .venv` and `uv pip install --python .venv\Scripts\python.exe -r windows/requirements.txt`); `windows/serial_gui.cmd` prefers that interpreter automatically. Start the managed service with `python scripts/serial_service_cli.py --port COM10 --baud 115200`, then run `python scripts/serial_gui_qt.py` and connect through「更多 → 连接共享服务…」, or invoke an action with `python scripts/serial_control.py status --control 8889`. When passing JSON parameters to `serial_control.py` from Windows PowerShell 5.1, use the stop-parsing operator so quotes survive: `python --% scripts/serial_control.py send.hex --params "{\"data\":\"AA 55 01\"}" --control 8889`.
+Install on Windows with `python -m pip install -r windows/requirements.txt`. On uv-managed Pythons where `pip install` fails with `externally-managed`, create a repo-local virtual environment instead (`uv venv .venv` and `uv pip install --python .venv\Scripts\python.exe -r windows/requirements.txt`); `windows/serial_gui.cmd` prefers that interpreter automatically. Start the managed service with `python scripts/serial_service_cli.py --port COM10 --baud 115200`, then run `python scripts/serial_gui_qt.py` and connect through the settings tab's「共享串口桥 → 连接共享服务…」, or invoke an action with `python scripts/serial_control.py status --control 8889`. When passing JSON parameters to `serial_control.py` from Windows PowerShell 5.1, use the stop-parsing operator so quotes survive: `python --% scripts/serial_control.py send.hex --params "{\"data\":\"AA 55 01\"}" --control 8889`.
 
 The service binds loopback only. Raw TCP defaults to port 8888 and management defaults to 8889. The management protocol is version 1, uses one JSON object per line, rejects messages over 256 KiB and sends over 64 KiB, and represents binary data as base64 in RX/TX events. `send.hex` accepts complete byte pairs such as `AA 55 01 02 FF`; malformed pairs are rejected before any write. Text uses UTF-8 by default and supports ASCII plus `none`, `cr`, `lf`, or `crlf` line endings.
 

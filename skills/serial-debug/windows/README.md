@@ -58,7 +58,7 @@ python scripts\shared_serial_bridge.py autobaud --control 8889 --mode active   #
 
 在线扫描的候选与节奏由 `BaudCandidates`、`AutoBaudSeconds`、`AutoBaudRounds` 控制；离线检测使用 `BaudSampleSeconds` 和 `BaudRounds`。候选越多、监听越久，检测总时间越长。
 
-Qt 工作台（`serial_gui.cmd`）无需命令行：直连会话默认开启「乱码自动重扫波特率」，设备中途换波特率会自动感知并切换，日志区打印 `SYS` 提示；「日志设置」页提供该开关、「自动重扫允许主动探测」复选框和「在线检测波特率」按钮（也可在主菜单「更多」里找到），服务会话同样支持手动在线检测。
+Qt 工作台（`serial_gui.cmd`）无需命令行：直连会话默认开启「乱码自动重扫波特率」，设备中途换波特率会自动感知并切换，日志区打印 `SYS` 提示；「设置」页「波特率」分区提供该开关、「自动重扫允许主动探测」复选框和「在线检测波特率」按钮，服务会话同样支持手动在线检测。
 
 ## 配置说明
 

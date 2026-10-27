@@ -195,9 +195,10 @@ class OpenLogWorkbenchTests(unittest.TestCase):
         self.assertEqual(window.options()['log_directory'], str(self.directory))
         self.assertIn('已打开日志 demo.log', self.sys_texts(window)[-1])
 
-    def test_open_entries_in_more_menu_settings_page_and_file_menu(self):
+    def test_open_log_lives_in_file_menu_and_settings_page_only(self):
+        """入口去重：打开日志文件只在「文件」菜单（Ctrl+O）与设置页「日志文件」分区，「更多」不再重复。"""
         window = self.make_window()
-        self.assertIn('打开日志文件…', [a.text() for a in window.more.menu().actions()])
+        self.assertNotIn('打开日志文件…', [a.text() for a in window.more.menu().actions()])
         buttons = [b.text() for b in window.modules[2][0].findChildren(QPushButton)]
         self.assertIn('打开日志文件…', buttons)
         menubar = window.findChild(QMenuBar)

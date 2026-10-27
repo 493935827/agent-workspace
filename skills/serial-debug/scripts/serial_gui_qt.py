@@ -610,18 +610,12 @@ class Workbench(Preview):
         self.wrap.toggled.connect(self.rerender)
         self.inspector.setMovable(True)
         self.modules = [(self.inspector.widget(i), self.inspector.tabText(i)) for i in range(self.inspector.count())]
+        # 「更多」只留会话与界面入口；配置统一进右侧「设置」页分区，文件动作归「文件」菜单。
         menu = self.more.menu()
         for action in list(menu.actions()):
             if action.text() in ('模拟设备异常', '关于预览'):
                 menu.removeAction(action)
         menu.addAction('关闭当前会话', lambda: self.close_session(self.active))
-        menu.addAction('连接共享服务…', self.connect_service_dialog)
-        menu.addAction('条件提醒…', self.show_alert_settings)
-        menu.addAction('提醒重新计数', self.reset_alerts)
-        self.logging_action = menu.addAction('开始持续日志…', self.toggle_logging)
-        menu.addAction('打开日志文件…', self.open_log_dialog)
-        menu.addAction('时间戳与文件设置…', self.show_file_settings)
-        menu.addAction('搜索选项…', self.show_search_settings)
         menu.addAction('布局模块…', self.show_modules)
         menu.addAction('关于工作台', self.about)
         # Also expose log opening where save lives: the 文件 menubar menu.
@@ -632,19 +626,34 @@ class Workbench(Preview):
             open_action = file_menu.addAction('打开日志文件…', self.open_log_dialog, 'Ctrl+O')
             file_menu.removeAction(open_action)
             file_menu.insertAction(before, open_action)
-        # Surface functional controls in the existing settings tab, keeping the shell unchanged.
-        layout = self.modules[2][0].layout()
-        for child in self.modules[2][0].findChildren(QLabel):
-            if '将在接入' in child.text():
-                child.setText('设置仅作用于当前会话；文件日志独立于显示过滤。')
-                child.setWordWrap(True)
-        for title, callback in [('时间戳与文件设置…', self.show_file_settings),
-                                ('开始 / 停止持续日志', self.toggle_logging),
-                                ('打开日志文件…', self.open_log_dialog),
-                                ('条件提醒…', self.show_alert_settings)]:
+        # Surface functional controls in the matching settings sections, keeping the shell unchanged.
+        note = self.settings_note
+        note.setText('设置仅作用于当前会话；文件日志独立于显示过滤。')
+        sections = self.settings_sections
+        # 日志文件：持续日志开关 + 打开/文件设置入口（对话框承载具体字段）。
+        files = sections['files']
+        self.logging_button = QPushButton('开始持续日志…')
+        self.logging_button.clicked.connect(self.toggle_logging)
+        self.logging_button.setToolTip('把当前会话的收发内容持续写入日志文件')
+        files.addWidget(self.logging_button)
+        for title, callback, tip in [('打开日志文件…', self.open_log_dialog, '读取日志文件回放到当前会话（Ctrl+O）'),
+                                     ('时间戳与文件设置…', self.show_file_settings, '文件日志的时间戳格式、编码、换行与目录')]:
             b = QPushButton(title)
             b.clicked.connect(callback)
-            layout.insertWidget(layout.count()-1, b)
+            b.setToolTip(tip)
+            files.addWidget(b)
+        # 提醒。
+        alerts = sections['提醒']
+        alert_button = QPushButton('条件提醒…')
+        alert_button.clicked.connect(self.show_alert_settings)
+        alert_button.setToolTip('命中关键字或错误时弹窗/气泡提醒')
+        alerts.addWidget(alert_button)
+        recount_button = QPushButton('提醒重新计数')
+        recount_button.clicked.connect(self.reset_alerts)
+        recount_button.setToolTip('把条件提醒的已命中计数清零')
+        alerts.addWidget(recount_button)
+        # 波特率。
+        baud = sections['波特率']
         self.autobaud_monitor = QCheckBox('乱码自动重扫波特率')
         self.autobaud_monitor.setToolTip('连接期间收到持续乱码（多为设备中途换了波特率）时，自动用候选波特率重扫并切换；被动方式不发送任何数据')
         self.autobaud_probe = QCheckBox('自动重扫允许主动探测')
@@ -652,13 +661,10 @@ class Workbench(Preview):
         self.baud_scan_button = QPushButton('在线检测波特率')
         self.baud_scan_button.clicked.connect(self.scan_baud_online)
         self.baud_scan_button.setToolTip('保持当前连接，扫描候选波特率并在确认后切换')
-        layout.insertWidget(layout.count()-1, row(self.autobaud_monitor, None, self.baud_scan_button))
-        layout.insertWidget(layout.count()-1, self.autobaud_probe)
-        # All shared-bridge controls live in one labelled group at the end.
-        layout.insertSpacing(layout.count()-1, 8)
-        heading = QLabel('共享串口桥')
-        heading.setProperty('role', 'heading')
-        layout.insertWidget(layout.count()-1, heading)
+        baud.addWidget(row(self.autobaud_monitor, None, self.baud_scan_button))
+        baud.addWidget(self.autobaud_probe)
+        # 共享串口桥。
+        bridge = sections['共享串口桥']
         self.service_connect = QPushButton('连接共享服务…')
         self.service_connect.clicked.connect(self.connect_service_dialog)
         self.service_connect.setToolTip('接入本机共享串口桥，作为人工客户端查看与发送')
@@ -670,14 +676,8 @@ class Workbench(Preview):
         self.service_stop.clicked.connect(self.stop_service_bridge)
         self.service_stop.setVisible(False)
         self.service_stop.setToolTip('停止共享串口桥进程并释放串口；Agent 与其他客户端的连接会一并断开')
-        bridge_group = QWidget()
-        bridge_layout = QVBoxLayout(bridge_group)
-        bridge_layout.setContentsMargins(0, 0, 0, 0)
-        bridge_layout.setSpacing(4)
         for b in (self.service_connect, self.service_takeover, self.service_stop):
-            bridge_layout.addWidget(b)
-        layout.insertWidget(layout.count()-1, bridge_group)
-        menu.addAction('在线检测波特率…', self.scan_baud_online)
+            bridge.addWidget(b)
         self.search.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.search.customContextMenuRequested.connect(self.search_menu)
         QShortcut(QKeySequence('F3'), self, activated=self.next_match)
@@ -756,11 +756,11 @@ class Workbench(Preview):
         for name, chip in self.filter_buttons.items():
             chip.setChecked(name in self.tag_filters if self.tag_filters else name == '全部')
         super().switch(index)
-        for b in (self.pause_button, self.pause_tool):
-            b.blockSignals(True)
-            b.setChecked(self.paused)
-            b.setText('恢复接收' if self.paused else '暂停接收')
-            b.blockSignals(False)
+        b = self.pause_tool
+        b.blockSignals(True)
+        b.setChecked(self.paused)
+        b.setText('恢复接收' if self.paused else '暂停接收')
+        b.blockSignals(False)
         self.pause_badge.setVisible(self.paused)
         self.rerender()
 
@@ -1363,7 +1363,7 @@ class Workbench(Preview):
         else:
             self.state.setText(status)
             set_role(self.state, 'warning' if self.paused else 'muted')
-        self.logging_action.setText('停止持续日志' if s.get('log_file') else '开始持续日志…')
+        self.logging_button.setText('停止持续日志' if s.get('log_file') else '开始持续日志…')
         self.macro_run.setEnabled(s['state'] == 'connected' and self.macro_job is None)
 
     def report_error(self, text):
@@ -1500,12 +1500,12 @@ class Workbench(Preview):
         self.paused = not self.paused if paused is None else bool(paused)
         self.options()['paused'] = self.paused
         self.sessions[self.active]['pending'] = 0
-        for b in (self.pause_button, self.pause_tool):
-            b.blockSignals(True)
-            b.setChecked(self.paused)
-            b.setText('恢复接收' if self.paused else '暂停接收')
-            b.setIcon(icon('play' if self.paused else 'pause'))
-            b.blockSignals(False)
+        b = self.pause_tool
+        b.blockSignals(True)
+        b.setChecked(self.paused)
+        b.setText('恢复接收' if self.paused else '暂停接收')
+        b.setIcon(icon('play' if self.paused else 'pause'))
+        b.blockSignals(False)
         self.pause_badge.setText('已暂停')
         self.pause_badge.setVisible(self.paused)
         self._position_badge()
