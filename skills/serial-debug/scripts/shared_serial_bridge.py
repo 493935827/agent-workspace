@@ -34,9 +34,11 @@ def close_socket(sock):
         pass
 
 
-def open_serial(port, baud):
-    # serial_for_url also accepts normal COM names and lets us test with loop://.
-    return serial.serial_for_url(port, baudrate=baud, timeout=0.05, write_timeout=0.5)
+def open_serial(port, baud, proc_args=None, proc_cwd=None):
+    # proc:// spawns a local process terminal; everything else goes to
+    # serial_for_url, which also accepts normal COM names and loop:// for tests.
+    from process_terminal import open_endpoint
+    return open_endpoint(port, baud, proc_args=proc_args, proc_cwd=proc_cwd)
 
 
 def run_bridge(args):
@@ -48,19 +50,26 @@ def run_bridge(args):
 
     auto_baud = None
     if getattr(args, 'autobaud', False):
-        auto_baud = dict(enabled=True, active=bool(args.autobaud_probe))
-        if args.autobaud_bauds:
-            auto_baud['bauds'] = args.autobaud_bauds
-        if args.autobaud_seconds is not None:
-            auto_baud['seconds'] = args.autobaud_seconds
-        if args.autobaud_rounds is not None:
-            auto_baud['rounds'] = args.autobaud_rounds
+        if args.port and args.port.lower().startswith('proc://'):
+            print("[串口桥] 进程终端没有波特率，--autobaud 已忽略", flush=True)
+        else:
+            auto_baud = dict(enabled=True, active=bool(args.autobaud_probe))
+            if args.autobaud_bauds:
+                auto_baud['bauds'] = args.autobaud_bauds
+            if args.autobaud_seconds is not None:
+                auto_baud['seconds'] = args.autobaud_seconds
+            if args.autobaud_rounds is not None:
+                auto_baud['rounds'] = args.autobaud_rounds
     safe_port = ''.join(c if c.isalnum() else '_' for c in (args.port or 'released'))
     log_path = args.log or f"serial_{safe_port}_{datetime.now():%Y%m%d_%H%M%S}.log"
+    # getattr: the standalone importlib test harness builds args namespaces
+    # without the newer proc fields.
+    factory = (lambda p, b: open_serial(p, b, proc_args=getattr(args, 'proc_args', None),
+                                        proc_cwd=getattr(args, 'proc_cwd', None)))
     service = SerialService(
         port=args.port, baud=args.baud, host=args.host, tcp=args.tcp,
         control=getattr(args, 'control', None) or args.tcp + 1,
-        chardelay=args.chardelay, log=log_path, serial_factory=open_serial,
+        chardelay=args.chardelay, log=log_path, serial_factory=factory,
         auto_baud=auto_baud,
     ).start()
     print(f"bridge_start port={args.port} baud={args.baud} "
@@ -369,6 +378,10 @@ def build_parser():
     bridge.add_argument("--chardelay", type=float, default=0.0)
     bridge.add_argument("--log")
     bridge.add_argument("--control", type=int, help="Management TCP port; default raw TCP + 1")
+    bridge.add_argument("--proc-args", default=None,
+                        help="proc:// 终端的额外启动参数（例：'-NoProfile -ExecutionPolicy Bypass'）")
+    bridge.add_argument("--proc-cwd", default=None,
+                        help="proc:// 终端子进程的工作目录（默认随桥进程）")
     bridge.add_argument("--autobaud", action="store_true",
                         help="监视接收乱码并自动重扫波特率（被动，不发送任何数据）")
     bridge.add_argument("--autobaud-probe", action="store_true",

@@ -709,5 +709,125 @@ class ReaderRobustnessTests(unittest.TestCase):
                             f'log file does not open with a session header: {content[:80]!r}')
 
 
+class FakeProc:
+    """Process-terminal stand-in: no line discipline, hook invoked on write."""
+
+    is_process_terminal = True
+    no_respawn = True
+    echo_tx = True
+
+    def __init__(self):
+        self.echo_hook = None
+        self.closed = False
+        self.eof = False
+        self.writes = bytearray()
+
+    def read(self, size):
+        if self.eof:
+            raise OSError('终端进程已退出 (exit code=0)；用 serial.open 重新拉起')
+        return b''
+
+    def write(self, data):
+        if self.closed or self.eof:
+            raise OSError('终端已关闭')
+        self.writes.extend(data)
+        if self.echo_hook is not None:
+            self.echo_hook(bytes(data))
+        return len(data)
+
+    def get_settings(self):
+        return dict(port='proc://fake', baudrate=115200, bytesize=8, stopbits=1,
+                    parity='N', xonxoff=False, rtscts=False, dsrdtr=False)
+
+    def apply_settings(self, settings):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class ProcessEndpointTests(unittest.TestCase):
+    def setUp(self):
+        self.devices = []
+
+        def factory(port, baud):
+            device = FakeProc()
+            self.devices.append(device)
+            return device
+
+        self.service = SerialService(port='proc://fake', tcp=0, control=0,
+                                     serial_factory=factory).start()
+        self.addCleanup(self.service.close)
+        deadline = time.monotonic() + 3
+        while self.service.device is None and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.client = Client(port=self.service.control_port)
+        self.addCleanup(self.client.close)
+
+    def raw_client(self):
+        raw = socket.create_connection(('127.0.0.1', self.service.tcp_port), timeout=1)
+        self.addCleanup(raw.close)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if self.service.raw_clients:
+                break
+            time.sleep(.01)
+        return raw
+
+    def wait_disconnected(self):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if not self.client.call('status')['connected']:
+                return
+            time.sleep(.02)
+        self.fail('service still reports connected after process exit')
+
+    def test_status_reports_process_endpoint_kind(self):
+        status = self.client.call('status')
+        self.assertEqual(status['endpoint_kind'], 'process')
+        self.assertIn('proc-terminal', status['capabilities'])
+
+    def test_send_echoes_written_line_to_raw_clients(self):
+        # Payload shape comes from the device's echo hook (FakeProc passes the
+        # written chunk through verbatim); the real CRLF-processed echo is
+        # covered in test_process_terminal.py.
+        raw = self.raw_client()
+        job = self.client.call('send', data=base64.b64encode(b'hi\r').decode(), format='base64')
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if self.client.call('job.status', job_id=job['job_id'])['state'] == 'written':
+                break
+            time.sleep(.01)
+        raw.settimeout(2)
+        self.assertIn(b'hi\r', raw.recv(200))
+
+    def test_process_exit_disables_reconnect_and_keeps_service_alive(self):
+        self.devices[0].eof = True
+        self.wait_disconnected()
+        status = self.client.call('status')
+        self.assertFalse(status['reconnect'])
+        self.assertIn('终端进程已退出', status['error'])
+        time.sleep(1.2)  # longer than the 1s maintenance respawn interval
+        self.assertEqual(len(self.devices), 1, 'released process terminal was respawned')
+
+    def test_serial_open_respawns_process_after_exit(self):
+        self.devices[0].eof = True
+        self.wait_disconnected()
+        status = self.client.call('serial.open', port='proc://fake', baudrate=115200)
+        self.assertTrue(status['connected'])
+        self.assertEqual(len(self.devices), 2)
+        self.assertEqual(status['endpoint_kind'], 'process')
+
+    def test_baud_change_is_refused_for_process_terminal(self):
+        with self.assertRaises(RemoteError) as ctx:
+            self.client.call('serial.baud', baudrate=9600)
+        self.assertEqual(ctx.exception.code, 'unsupported')
+
+    def test_online_baud_scan_is_refused_for_process_terminal(self):
+        with self.assertRaises(RemoteError) as ctx:
+            self.client.call('serial.autobaud', mode='passive')
+        self.assertEqual(ctx.exception.code, 'unsupported')
+
+
 if __name__ == '__main__':
     unittest.main()

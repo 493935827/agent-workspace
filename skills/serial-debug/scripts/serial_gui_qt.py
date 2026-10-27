@@ -355,7 +355,16 @@ class ServiceWorker(threading.Thread):
             c = self.service
             client = self.client_factory(c['host'], int(c['control']))
             client.subscribe()
-            status = client.call('serial.open', port=c['device'], baudrate=int(c['baud']))
+            if str(c['device']).startswith('proc://'):
+                # A process bridge owns its child shell already; calling
+                # serial.open here would kill and respawn the shared session.
+                # Attach as-is, and only bootstrap an endpoint that exited.
+                status = client.call('status')
+                if not status.get('connected'):
+                    status = client.call('serial.open', port=c['device'],
+                                         baudrate=int(c.get('baud') or 115200))
+            else:
+                status = client.call('serial.open', port=c['device'], baudrate=int(c['baud']))
             if not status.get('connected'):
                 raise ServiceError('open_failed', status.get('error') or '设备打开失败')
             self.status = status
@@ -903,12 +912,14 @@ class Workbench(Preview):
         control = QLineEdit('8889')
         port = QComboBox()
         port.addItems([p.device for p in self.port_provider()])
+        port.addItems(['proc://powershell', 'proc://cmd', 'proc://python'])
         port.setEditable(True)
         baud = QComboBox()
         baud.addItems(['9600', '57600', '115200', '460800', '921600'])
         baud.setEditable(True)
         baud.setCurrentText('57600')
-        for title, w in [('服务地址（仅限本机）', host), ('控制端口', control), ('目标串口', port), ('波特率', baud)]:
+        for title, w in [('服务地址（仅限本机）', host), ('控制端口', control),
+                         ('目标串口 / proc:// 终端', port), ('波特率', baud)]:
             f.addRow(title, w)
         buttons = self.dialog_buttons(d, f)
         buttons.accepted.disconnect()
@@ -924,7 +935,10 @@ class Workbench(Preview):
             except ValueError:
                 baud_value = 0
             device = port.currentText().strip()
-            if not device or baud_value <= 0:
+            if device.startswith('proc://'):
+                # A process terminal has no baud rate; any placeholder passes.
+                baud_value = 115200
+            elif not device or baud_value <= 0:
                 show_error('请填写目标串口和正整数波特率')
                 return
             if control_port <= 0:
@@ -934,9 +948,11 @@ class Workbench(Preview):
         buttons.accepted.connect(accept)
         if not d.exec():
             return
+        device = port.currentText().strip()
+        baud_text = baud.currentText().strip() or ('115200' if device.startswith('proc://') else '')
         service = dict(host=host.text().strip() or '127.0.0.1',
                        control=int(control.text().strip() or '8889'),
-                       device=port.currentText().strip(), baud=baud.currentText().strip())
+                       device=device, baud=baud_text)
         name = f"service:{service['host']}:{service['control']}/{service['device']}"
         index = self.create_session(name)
         self.sessions[index]['service'] = service
@@ -957,10 +973,17 @@ class Workbench(Preview):
             return
         service = s['service']
         device = service.get('device') or '串口'
-        box = QMessageBox(QMessageBox.Icon.Warning, '停止共享串口桥',
-                          f'停止 {service["host"]}:{service["control"]} 上的串口桥并释放 {device}？\n\n'
-                          '桥进程将退出，Agent 与其他客户端的连接会断开；'
-                          '之后其他工具可以直接打开该串口。', parent=self)
+        if device.startswith('proc://'):
+            detail = ('桥进程将退出，其 shell 子进程一并结束；'
+                      'Agent 与其他客户端的连接会断开。')
+            title = '停止共享终端桥'
+        else:
+            detail = ('桥进程将退出，Agent 与其他客户端的连接会断开；'
+                      '之后其他工具可以直接打开该串口。')
+            title = '停止共享串口桥'
+        box = QMessageBox(QMessageBox.Icon.Warning, title,
+                          f'停止 {service["host"]}:{service["control"]} 上的桥（{device}）？\n\n{detail}',
+                          parent=self)
         stop = box.addButton('停止桥并释放端口', QMessageBox.ButtonRole.AcceptRole)
         cancel = box.addButton('取消', QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(cancel)
@@ -976,6 +999,9 @@ class Workbench(Preview):
 
     def scan_baud_online(self):
         s = self.sessions[self.active]
+        if (s.get('service') or {}).get('device', '').startswith('proc://'):
+            self.report_error('进程终端没有波特率，无需在线检测')
+            return
         worker = s.get('worker')
         if worker is None or s['state'] != 'connected':
             self.report_error('请先连接串口，再使用在线波特率检测')

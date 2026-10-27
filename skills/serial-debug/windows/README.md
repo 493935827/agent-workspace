@@ -87,6 +87,19 @@ Qt 工作台（`serial_gui.cmd`）无需命令行：直连会话默认开启「�
 - Enter 使用配置中的 `LineEnding`。
 - 发送被拒绝（例如代理占用串口期间）时连接保持不断开，终端会显示 `[串口桥] 发送被拒绝：…` 提示，收回控制权后可直接继续发送。
 
+## 进程终端桥（proc://）
+
+桥不只能接串口，还能共享本机命令行进程（人和 agent 共用同一条 CMD / PowerShell 会话）：
+
+```powershell
+.venv\Scripts\python.exe scripts\shared_serial_bridge.py bridge --port proc://powershell --tcp 8890
+```
+
+- 预设端点：`proc://cmd`、`proc://powershell`（优先 pwsh）、`proc://python`，或 `proc://<可执行文件>` 配 `--proc-args` / `--proc-cwd`。
+- 交互终端与 agent 发送用法与串口桥完全一致（`connect` / `send` 指向同一个 TCP 端点）。
+- 差异：按行输入（回车后命令行才回显给所有人）；无波特率概念，`--autobaud` 被忽略；`cmd` 预设输出为 GBK，中文乱码时给 `connect`/`send` 加 `--encoding gbk`；在共享 shell 里输入 `exit` 会让桥进入已释放状态（不会偷偷重启进程），用 `serial.open` 或 GUI 重连可重新拉起。
+- 详细行为见 `references/shared-bridge.md` 的「Process Terminal Bridges」一节。
+
 ## PowerShell 命令
 
 除了双击菜单，也可以执行：

@@ -32,11 +32,14 @@ from serial_service_client import RemoteError
 class FakeServiceClient:
     """ServiceClient stand-in with scriptable call outcomes."""
 
-    def __init__(self, status_fail_after=None, takeover_error='busy'):
+    def __init__(self, status_fail_after=None, takeover_error='busy', connected=True):
         self.host = self.port = None
         self.status_calls = 0
         self.status_fail_after = status_fail_after  # None: status never fails
         self.takeover_error = takeover_error        # None: takeover succeeds
+        self.connected = connected
+        self.actions = []
+        self.serial_open_calls = 0
         self.events = queue.Queue()
         self.gaps = 0
         self.closed = False
@@ -45,13 +48,17 @@ class FakeServiceClient:
         pass
 
     def call(self, action, **params):
+        self.actions.append(action)
         if action == 'serial.open':
+            self.serial_open_calls += 1
             return {'connected': True, 'owner': 'agent', 'instance': 'fake',
                     'config': {'baudrate': 115200}}
         if action == 'status':
             self.status_calls += 1
             if self.status_fail_after is not None and self.status_calls > self.status_fail_after:
                 raise OSError('bridge is gone')
+            if not self.connected:
+                return {'connected': False, 'error': 'released'}
             return {'connected': True, 'owner': 'agent'}
         if action == 'agent.takeover':
             if self.takeover_error:
@@ -68,8 +75,8 @@ class FakeServiceClient:
         self.closed = True
 
 
-def make_worker(client, events, **kwargs):
-    service = dict(host='127.0.0.1', control=1, device='FAKE', baud='115200', name='FAKE')
+def make_worker(client, events, device='FAKE', **kwargs):
+    service = dict(host='127.0.0.1', control=1, device=device, baud='115200', name=device)
     return ServiceWorker(service, events, lambda host, port: client, **kwargs)
 
 
@@ -143,6 +150,56 @@ class ServiceWorkerProbeTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_QT, 'PySide6 is required for workbench integration tests')
+class ProcessEndpointWorkerTests(unittest.TestCase):
+    """proc:// service sessions attach to the running bridge without reopening."""
+
+    def run_worker_briefly(self, client, device, probe_interval=.05):
+        events = queue.Queue()
+        worker = make_worker(client, events, device=device, probe_interval=probe_interval)
+        worker.start()
+        return worker, events
+
+    def test_proc_device_attaches_without_serial_open(self):
+        client = FakeServiceClient(connected=True)
+        worker, events = self.run_worker_briefly(client, 'proc://powershell')
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and 'opened' not in collect(events):
+            time.sleep(.01)
+        worker.stopped.set()
+        worker.join(2)
+        self.assertNotIn('serial.open', client.actions)
+        self.assertEqual(client.serial_open_calls, 0)
+        self.assertIn('status', client.actions)
+
+    def test_proc_device_bootstraps_released_endpoint(self):
+        client = FakeServiceClient(connected=False)
+        worker, events = self.run_worker_briefly(client, 'proc://powershell')
+        kinds = []
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            kinds += collect(events)
+            if 'opened' in kinds:
+                break
+            time.sleep(.01)
+        worker.stopped.set()
+        worker.join(2)
+        kinds += collect(events)
+        self.assertEqual(client.serial_open_calls, 1, 'released endpoint was not respawned')
+        self.assertIn('opened', kinds)
+
+    def test_serial_device_still_opens_on_attach(self):
+        # Guard the existing attach behavior for COM endpoints.
+        client = FakeServiceClient()
+        worker, events = self.run_worker_briefly(client, 'FAKE')
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and 'opened' not in collect(events):
+            time.sleep(.01)
+        worker.stopped.set()
+        worker.join(2)
+        self.assertEqual(client.serial_open_calls, 1)
+
+
+@unittest.skipUnless(HAVE_QT, 'PySide6 is required for workbench integration tests')
 class TakeoverFailureGuiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -180,6 +237,21 @@ class TakeoverFailureGuiTests(unittest.TestCase):
         # The transport is alive: the session must NOT be poisoned into error.
         self.assertEqual('connected', window.sessions[index]['state'])
         self.assertFalse(window.service_takeover.isHidden())
+
+    def test_proc_service_session_refuses_online_baud_scan(self):
+        client = FakeServiceClient()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        window = Workbench(persist=False,
+                           settings_path=Path(directory.name) / 'settings.json',
+                           port_provider=lambda: [],
+                           service_client_factory=lambda host, port: client)
+        self.addCleanup(window.close)
+        index = window.create_session('service:127.0.0.1:1/proc://powershell')
+        window.sessions[index]['service'] = dict(host='127.0.0.1', control=1,
+                                                 device='proc://powershell', baud='115200')
+        window.scan_baud_online()
+        self.assertTrue(any('没有波特率' in text for text in self.records(window, index, 'ERROR')))
 
 
 if __name__ == '__main__':

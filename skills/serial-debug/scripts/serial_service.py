@@ -261,8 +261,13 @@ class SerialService:
                     last_reason=state['last_reason'], last_change=state['last_change'],
                     cooldown_remaining=max(0.0, round(state['cooldown_until'] - time.monotonic(), 2)))
 
+    @staticmethod
+    def _endpoint_kind(port):
+        return 'process' if isinstance(port, str) and port.lower().startswith('proc://') else 'serial'
+
     def status(self):
         return dict(version=VERSION, connected=self.device is not None,
+                    endpoint_kind=self._endpoint_kind(self.config.get('port')),
                     config=self.config.copy(), sequence=self.sequence, instance=self.instance,
                     pid=os.getpid(), script=str(Path(__file__).with_name('shared_serial_bridge.py').resolve()),
                     tcp_port=self.tcp_port, control_port=self.control_port,
@@ -273,7 +278,8 @@ class SerialService:
                     rx_bytes_total=self.rx_bytes_total, tx_bytes_total=self.tx_bytes_total,
                     last_rx_timestamp=self.last_rx_timestamp,
                     auto_baud=self._auto_baud_public(),
-                    capabilities=['events', 'jobs', 'exclusive', 'configure', 'device-release', 'auto-baud'])
+                    capabilities=['events', 'jobs', 'exclusive', 'configure', 'device-release',
+                                  'auto-baud', 'proc-terminal'])
 
     def _control(self, sock):
         # Call connections must survive arbitrarily long idle periods between
@@ -507,6 +513,10 @@ class SerialService:
     def _open_device(self, config):
         device = self.factory(config['port'], config['baudrate'])
         try:
+            # Process terminals echo their own processed input lines back to
+            # raw clients and the log; a piped shell echoes nothing itself.
+            if getattr(device, 'echo_tx', False):
+                device.echo_hook = self._echo_raw
             if hasattr(device, 'apply_settings'):
                 device.apply_settings({k: v for k, v in config.items() if k != 'port'})
             return device
@@ -518,6 +528,9 @@ class SerialService:
         if action == 'serial.baud':
             params = dict(baudrate=params.get('baudrate', params.get('baud')))
         config = self._settings(params) if action in ('serial.configure', 'serial.baud', 'serial.open') else self.config.copy()
+        if (action in ('serial.baud', 'serial.configure')
+                and self._endpoint_kind(config.get('port')) == 'process'):
+            raise ActionError('unsupported', '进程终端没有波特率或串口参数，请使用 serial.open 重新拉起进程')
         releasing = action in ('serial.close', 'serial.reconnect', 'serial.open', 'service.stop')
         self.transition = action
         try:
@@ -573,6 +586,11 @@ class SerialService:
             self.device = None
             self.last_error = str(error)
             self.token = None
+            # A process terminal must not respawn silently: the shell session
+            # (cwd, env, command history) is gone with the child, so stay
+            # released until someone explicitly opens the endpoint again.
+            if getattr(device, 'no_respawn', False):
+                self.reconnect = False
             # A queued scan request dies with the device: leaving it set kept
             # 'requested' stuck on, reporting bogus success and blocking later
             # scans with 'busy' until the port returned.
@@ -618,6 +636,33 @@ class SerialService:
                 self._panic(f'reader thread stalled or died (no progress for '
                             f'{READER_STALL_SECONDS:g}s); stopping the bridge')
                 break
+
+    def _broadcast_raw(self, data):
+        """Fan bytes out to every raw TCP terminal, dropping dead clients.
+
+        Callable with or without the service lock held (RLock); the
+        pop-with-default dance matters because another locked mutator (raw
+        notice/handler) may have dropped this client already, and a KeyError
+        here used to kill the reader thread and stop all RX forwarding.
+        """
+        with self.lock:
+            for sock, outgoing in list(self.raw_clients.items()):
+                try:
+                    outgoing.put_nowait(data)
+                except queue.Full:
+                    if self.raw_clients.pop(sock, None) is not None:
+                        self.client_drops += 1
+                        close_socket(sock)
+
+    def _echo_raw(self, data):
+        """Mirror a process terminal's processed input line to clients + log."""
+        with self.lock:
+            if self.log_path and not self.log_error:
+                try:
+                    self.log_queue.put_nowait(data)
+                except queue.Full:
+                    self.log_dropped += len(data)
+        self._broadcast_raw(data)
 
     def _raw_notice(self, text):
         """Inject a human-readable status line into every raw TCP client."""
@@ -809,6 +854,8 @@ class SerialService:
         with self.lock:
             if self.device is None:
                 raise ActionError('disconnected', 'Device is not connected')
+            if self._endpoint_kind(self.config.get('port')) == 'process':
+                raise ActionError('unsupported', '进程终端没有波特率，无法在线检测')
             if self.scan_active or self.scan_requested:
                 raise ActionError('busy', 'A baud scan is already pending or running')
             # Assign under the lock so concurrent requests cannot both pass the
@@ -902,18 +949,7 @@ class SerialService:
                             self.log_queue.put_nowait(data)
                         except queue.Full:
                             self.log_dropped += len(data)
-                    for sock, outgoing in list(self.raw_clients.items()):
-                        try:
-                            outgoing.put_nowait(data)
-                        except queue.Full:
-                            with self.lock:
-                                # pop-with-default: another locked mutator
-                                # (raw notice/handler) may have dropped this
-                                # client already; a KeyError here used to kill
-                                # the reader thread and stop all RX forwarding.
-                                if self.raw_clients.pop(sock, None) is not None:
-                                    self.client_drops += 1
-                                    close_socket(sock)
+                    self._broadcast_raw(data)
 
     def _raw_writer(self, sock, outgoing):
         try:

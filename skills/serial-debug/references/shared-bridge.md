@@ -26,6 +26,30 @@ On Windows, launch the bridge hidden or in a separate terminal so it keeps runni
 
 Append `--autobaud` to monitor the receive stream for sustained garbled output and re-scan the baud rate automatically (passive: no bytes are ever sent). Add `--autobaud-probe` to allow the re-scan to send Enter probes (for devices that go quiet after switching baud). `--autobaud-bauds 115200,921600` narrows the candidate list. While a scan runs, forwarding pauses for a few seconds and every terminal sees a Chinese status line; when a winner is found the bridge switches baud immediately and announces it.
 
+## Process Terminal Bridges (proc://)
+
+The same bridge can share a local Windows console process instead of a COM port. `--port proc://<preset>` spawns the child and owns its stdin/stdout; human terminals and agent senders connect exactly as they do for serial, so a human and an agent share one live CMD/PowerShell/REPL session.
+
+```bash
+python scripts/shared_serial_bridge.py bridge --port proc://powershell --tcp 8890
+```
+
+Presets:
+
+| Endpoint | Child process | Notes |
+| --- | --- | --- |
+| `proc://cmd` | `cmd.exe /Q /K` | Prompt comes from cmd itself; console codepage stays ANSI (GBK on zh-CN), so use `--encoding gbk` on `connect`/`send` for Chinese output. |
+| `proc://powershell` | `pwsh` if installed, else `powershell -NoProfile -NoLogo -Command -` | Output is forced to UTF-8 by the bridge. |
+| `proc://python` | The bridge's own Python REPL (`-u -i`, UTF-8) | Prints `>>>` prompts. |
+| `proc://<exe>` | Any executable found on PATH (or an absolute path) | Combine with `--proc-args "..."` and `--proc-cwd <dir>`. |
+
+Behavior differences from a serial port:
+
+- Line input only. The bridge assembles keystrokes into lines (backspace edits the pending line, Ctrl+C clears it), normalizes them to CRLF, and mirrors every completed line to all raw terminals and the session log — a piped shell echoes nothing itself, so typed characters do not appear until Enter is pressed. Ctrl+C cannot interrupt a running command in pipe mode; escape bytes are dropped.
+- No baud rate. `--autobaud` is ignored at startup, and `serial.baud` / `serial.autobaud` control calls are refused with `unsupported`.
+- When the child exits (including a typed `exit`), `status.error` reports the exit code and the bridge stays up in the released state — it never silently respawns a different shell session. `serial.open` (or a GUI reconnect) pulls the endpoint back up with a fresh child.
+- The Qt workbench attaches to a `proc://` bridge like a serial one: pick the `proc://` endpoint in the service dialog (baud is ignored). Attaching never reopens the child, so the shared session survives GUI connects and disconnects.
+
 ## Online Baud Detection (bridge keeps running)
 
 ```bash
