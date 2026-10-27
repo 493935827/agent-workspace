@@ -61,6 +61,14 @@ DEFAULT_OPTIONS = dict(timestamps=True, time_format=TIME_FORMATS[1], wrap=False,
 
 # 每个会话的屏幕缓冲上限；LogView.setMaximumBlockCount(5000) 与此保持一致。
 RECORD_LIMIT = 5000
+# 搜索高亮重扫防抖：RX 流速时搜索框每条记录都全文档重扫会冻住主线程
+# （handoff 20261027-1610），合并为停顿后一次；命中数到达上限即停止收集。
+FIND_DEBOUNCE_MS = 200
+FIND_MATCH_LIMIT = 500
+# 影响既有记录渲染方式的选项：rerender 只在这些取值与上次构建不同（或暂停
+# 期间积压了未渲染记录）时才重建会话视图，其余情况视图随记录实时渲染保持同步。
+RENDER_OPTION_KEYS = ('timestamps', 'time_format', 'wrap', 'show_rx', 'show_tx',
+                      'display_mode', 'log_level', 'tags')
 # 打开超大日志时只解析末尾这么多字节（从换行边界起读），避免卡住界面。
 LOG_TAIL_BYTES = 8 * 1024 * 1024
 
@@ -608,8 +616,14 @@ class Workbench(Preview):
             alerts=AlertMonitor(), log_file=None, log_path=None, file_line_start=True,
             display_line_start=True, received=0, rx_bytes=0, sent=0, mode=1,
             locked=False, history=[], sent_log=[], pending=0)
+        s['render_sync'] = self.render_fingerprint(s)
 
     def install_controls(self):
+        if getattr(self, '_find_timer', None) is None:
+            self._find_timer = QTimer(self)
+            self._find_timer.setSingleShot(True)
+            self._find_timer.setInterval(FIND_DEBOUNCE_MS)
+            self._find_timer.timeout.connect(self.find_now)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(lambda i: self.close_session(self.tabs.tabData(i)))
@@ -1446,6 +1460,17 @@ class Workbench(Preview):
         bar = view.verticalScrollBar()
         position = bar.value()
         follow = o['auto_scroll'] and position >= bar.maximum()-3
+        self.append_record(index, record)
+        if follow:
+            bar.setValue(bar.maximum())
+        else:
+            bar.setValue(position)
+
+    def append_record(self, index, record):
+        """把一条记录渲染追加到该会话日志视图末尾（不处理滚动条）。"""
+        s = self.sessions[index]
+        o = s['options']
+        view = self.views[index]
         cursor = QTextCursor(view.document())
         cursor.movePosition(QTextCursor.MoveOperation.End)
         spans = record['spans']
@@ -1497,10 +1522,38 @@ class Workbench(Preview):
                 cursor.insertText(part + ('\n' if newline else ''), fmt)
                 s['display_line_start'] = newline
         s['display_tag'] = record['tag']
-        if follow:
-            bar.setValue(bar.maximum())
-        else:
-            bar.setValue(position)
+
+    def render_fingerprint(self, s):
+        """当前会话「渲染相关状态」的签名：选项 + 主题。"""
+        o = s['options']
+        return (self.dark, tuple(tuple(o[k]) if k == 'tags' else o[k] for k in RENDER_OPTION_KEYS))
+
+    def rebuild_view(self, index):
+        """按 records 全量重建一个会话的日志视图。
+
+        逐条 insertText 会让文档排版与滚动条逐条刷新，满缓冲时一次重建可冻住
+        主线程数秒（handoff 20261027-1610）；单个 edit block 把排版、undo 与
+        滚动条工作合并到重建完成后一次完成。
+        """
+        s = self.sessions[index]
+        view = self.views[index]
+        o = s['options']
+        view.clear()
+        s['display_line_start'] = True
+        s['display_tag'] = None
+        view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth if o['wrap'] else QPlainTextEdit.LineWrapMode.NoWrap)
+        cursor = QTextCursor(view.document())
+        cursor.beginEditBlock()
+        try:
+            for record in s['records']:
+                if self.visible_record(s, record['tag']):
+                    self.append_record(index, record)
+        finally:
+            cursor.endEditBlock()
+        view.setExtraSelections([])
+        bar = view.verticalScrollBar()
+        bar.setValue(bar.maximum() if o['auto_scroll'] else 0)
+        s['render_sync'] = self.render_fingerprint(s)
 
     def rerender(self):
         if not self.ready:
@@ -1511,12 +1564,11 @@ class Workbench(Preview):
         for i, s in enumerate(self.sessions):
             if s['options']['paused']:
                 continue
-            self.views[i].clear()
-            s['display_line_start'] = True
-            s['display_tag'] = None
-            self.views[i].setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth if s['options']['wrap'] else QPlainTextEdit.LineWrapMode.NoWrap)
-            for record in s['records']:
-                self.render_record(i, record)
+            # 记录到达时实时渲染，视图始终与 records 同步；只有渲染选项变化
+            # （或暂停积压）才让视图过期。满缓冲切换标签不再全量重画。
+            if s.get('render_sync') == self.render_fingerprint(s):
+                continue
+            self.rebuild_view(i)
         if self.active >= 0:
             self.find()
 
@@ -1536,6 +1588,8 @@ class Workbench(Preview):
         self.pause_badge.setVisible(self.paused)
         self._position_badge()
         if not self.paused:
+            # 暂停期间积压的记录没有渲染过，视图已过期，必须整帧重建。
+            self.sessions[self.active]['render_sync'] = None
             self.rerender()
         self.update_state()
 
@@ -1649,8 +1703,11 @@ class Workbench(Preview):
             if index == self.active:
                 self.pause_badge.setText(f"已暂停 · 新增 {s['pending']} 条")
         else:
-            for record in records:
-                self.render_record(index, record)
+            bar = self.views[index].verticalScrollBar()
+            position = bar.value()
+            self.rebuild_view(index)
+            if not s['options']['auto_scroll']:
+                bar.setValue(position)
             if index == self.active and self.search.text():
                 self.find()
         summary = [f'已打开日志 {path.name}（{encoding}）：{stats["lines"]} 行 → {total} 条记录']
@@ -1857,6 +1914,15 @@ class Workbench(Preview):
         menu.deleteLater()
 
     def find(self):
+        """调度一次搜索高亮重扫；防抖窗口内的多次触发合并为一次。"""
+        if not self.ready:
+            return super().find()
+        if self.active < 0:
+            return
+        self._find_timer.start()
+
+    def find_now(self):
+        """立即执行一次重扫（绕过防抖；F3/导航需要最新匹配时用）。"""
         if not self.ready:
             return super().find()
         if self.active < 0:
@@ -1872,7 +1938,7 @@ class Workbench(Preview):
         self.matches = []
         selections = []
         cursor = QTextCursor(view.document())
-        while query:
+        while query and len(self.matches) < FIND_MATCH_LIMIT:
             cursor = view.document().find(query, cursor, flags)
             if cursor.isNull():
                 break
@@ -1882,11 +1948,21 @@ class Workbench(Preview):
             selection.format.setBackground(QColor(self.c['warning_background']))
             selection.format.setForeground(QColor(self.c['warning_foreground']))
             selections.append(selection)
+        # 命中到达上限时再探一步，区分「正好 500」与「500+」。
+        capped = (len(self.matches) == FIND_MATCH_LIMIT
+                  and not view.document().find(query, cursor, flags).isNull())
         view.setExtraSelections(selections)
         self.match_index = -1
-        self.match_count.setText(f'{len(self.matches)} 个匹配' if query else '')
+        if capped:
+            self.match_count.setText(f'{FIND_MATCH_LIMIT}+ 个匹配')
+        else:
+            self.match_count.setText(f'{len(self.matches)} 个匹配' if query else '')
 
     def next_match(self, direction=1):
+        if self._find_timer.isActive():
+            # 防抖窗口内导航时先出结果，避免 F3 用上一轮的旧匹配。
+            self._find_timer.stop()
+            self.find_now()
         if self.matches:
             if self.match_index == -1 and direction == -1:
                 self.match_index = 0
