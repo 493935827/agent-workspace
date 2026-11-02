@@ -1,5 +1,5 @@
 ---
-name: workflow-run
+name: workflow-run-skill
 description: 通过稳定的可执行 runner，将本地 Excel 或离线飞书快照依次转换为 SVD、ae350.h 和 LL Driver，并返回机器可读结果。
 prerequisites:
   - python >= 3.8
@@ -11,7 +11,7 @@ language: zh-CN
 
 # Workflow Run
 
-当用户要从本地 Excel 或已经获取的飞书离线快照生成完整产物链时使用本 Skill。若用户只想检查已有文件，请使用对应的 check Skill。
+当用户要从本地 Excel 或已经获取的飞书离线快照生成完整产物链时使用本 Skill。若用户只想检查已有文件而不重新生成产物，请使用对应的检查流程/技能（当前环境未安装；可手动核对寄存器定义与 SVD 的一致性）。
 
 ## 唯一执行边界
 
@@ -30,7 +30,7 @@ python workflow-run-skill/run_workflow.py `
   --evidence <workflow-result.json>
 ```
 
-飞书输入：先由 `feishu-fetch` 获得重建 Excel 和原始 JSON 快照，然后调用同一 runner：
+飞书输入：需先具备 `feishu-fetch` 技能，当前环境缺失（三处技能目录均不存在该技能）；替代方式：手动导出飞书表格为本地 Excel 后走 `--source local` 链路（本地 Excel 链路完整可用）。若环境已具备该技能，先由 `feishu-fetch` 获得重建 Excel 和原始 JSON 快照，然后调用同一 runner：
 
 ```powershell
 python workflow-run-skill/run_workflow.py `

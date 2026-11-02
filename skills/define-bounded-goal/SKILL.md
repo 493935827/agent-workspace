@@ -1,6 +1,6 @@
 ---
 name: define-bounded-goal
-description: Define or refine a concrete, measurable Goal with an explicit wall-clock timebox, work depth, verification ceiling, safe-stop rules, and structured handoff.
+description: Define or refine a concrete, measurable Goal with an explicit wall-clock timebox, work depth, verification ceiling, safe-stop rules, and structured handoff. Invoke only via the user's explicit request ($define-bounded-goal).
 ---
 
 # Define Bounded Goal
@@ -57,7 +57,7 @@ Use this skill only when the user explicitly invokes `$define-bounded-goal`. It 
 7. Create the Goal only after it passes the quality bar.
    - Use a single concise objective string containing both the measurable goal and Budget Contract.
    - Include verification evidence and scope bounds in the objective.
-   - Pass `token_budget` only when the user explicitly supplied a token count. Never infer or convert a token budget from task size or time.
+   - Pass only the parameters `create_goal` actually supports: `objective`, plus `max_goal_rounds` only when the user explicitly supplied a round limit. Never pass unsupported parameters such as a token budget, and never infer or convert one from task size or time.
    - Do not call `create_goal` for ordinary multi-step work unless the user explicitly asked for Goal-backed work.
 
 8. If implementation is authorized, execute within the contract.
@@ -131,7 +131,7 @@ Use one of these fixed stop reasons:
 | `completed_early` | Goal and contracted verification are complete with time remaining | End immediately; do not seek extra work |
 | `time_budget_warning` | Remaining time entered the final 20% | Freeze scope, verify, and hand off |
 | `time_budget_exhausted` | Timebox ended or the next safe action no longer fits | Finish only an immediately closable atomic operation, then stop |
-| `token_budget_exhausted` | Goal tooling reports the token budget exhausted | Stop according to Goal state and report it |
+| `goal_rounds_exhausted` | Goal tooling reports the continuation round limit (`max_goal_rounds`) reached | Stop according to Goal state and report it |
 | `command_timeout` | An external command reached its wait limit | Preserve output and choose at most one smaller alternative check |
 | `retry_limit_reached` | The same cause reached the retry limit | Report evidence and the blocker; stop blind retries |
 | `scope_expansion_required` | The next step needs broader scope, permission, or external authorization | Request the new authorization instead of widening the goal |

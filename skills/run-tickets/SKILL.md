@@ -15,7 +15,7 @@ Accept `/run-tickets <ticket-set> [--parallel N] [--scheduler rolling|barrier]`.
 - a local feature directory containing `issues/`, or the `issues/` directory itself; local `/to-tickets` output normally lives at `.scratch/<feature>/issues/<NN>-<slug>.md`;
 - a GitHub parent issue as `#123` when the repository is unambiguous, `owner/repo#123`, or a full `github.com/owner/repo/issues/123` URL.
 
-For a GitHub parent issue, use the configured tracker workflow in `docs/agents/issue-tracker.md`. Prefer the connected GitHub app for issue data; use authenticated `gh` only for capabilities the connector lacks. Read `references/github-tracker.md` before resolving a GitHub set. Load the parent, its open child tickets, each ticket body/comments, labels, assignee, and native dependency state. If child-ticket membership or dependencies cannot be read reliably, stop before dispatch rather than treating all repository issues as the batch.
+For a GitHub parent issue, use the configured tracker workflow in `docs/agents/issue-tracker.md` if that file exists; if it does not, run `/setup-matt-pocock-skills` first to create it, or fall back to the tracker guidance in `references/github-tracker.md`. Prefer the connected GitHub app for issue data; use authenticated `gh` only for capabilities the connector lacks. Read `references/github-tracker.md` before resolving a GitHub set. Load the parent, its open child tickets, each ticket body/comments, labels, assignee, and native dependency state. If child-ticket membership or dependencies cannot be read reliably, stop before dispatch rather than treating all repository issues as the batch.
 
 Clamp `N` to `1..3`; default to `3`. Before changing Git state, inspect `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING`, project docs, CI, package/build files, and the installed `to-tickets`, `implement`, `tdd`, and `code-review` skills. Discover repository validation and commit conventions from those sources; do not hard-code an ecosystem.
 
@@ -24,8 +24,10 @@ Use Codex's multi-agent and Git worktree capabilities only when they are availab
 For a local set, run the helper before every dispatch/reconciliation:
 
 ```powershell
-python "$env:USERPROFILE\.agents\skills\run-tickets\scripts\ticket_graph.py" <ticket-set> --format json
+python "<skill-root>/scripts/ticket_graph.py" <ticket-set> --format json
 ```
+
+`<skill-root>` is this skill's own root directory (the folder containing this SKILL.md). Resolve it relative to the copy actually in use — never as a hardcoded install path. This skill exists as two copies (workspace `skills/run-tickets/` and `~\.agents\skills\run-tickets\`); keep the two copies in sync when editing.
 
 The helper understands the local template (`# 01 — title`, `**Blocked by:**`, `**Status:**`) and reports validation errors, cycles, deterministic frontier order, and blocked tickets. Read `references/local-tracker.md` when a local tracker file differs from this format or status reconciliation is needed. For GitHub, query the live tracker again at equivalent points; GitHub's issue/dependency state replaces this helper.
 

@@ -3,6 +3,7 @@ name: reverse-engineer-anything
 description: Reverse engineer native, managed, Electron/JavaScript, packaged, firmware, and browser targets with REA. Use shipped-artifact or requested runtime evidence to explain features, compare versions, decompile code, or guide a reconstruction. Skip REA for ordinary source-repository architecture analysis.
 metadata:
   version: "42"
+  tool_count: 207
 ---
 
 # REA
@@ -36,7 +37,8 @@ availability have different remedies; avoid repeating setup for all of them.
    `npx -y rea-agents@latest doctor --client codex --json`. Substitute the current
    supported client: `claude_code`, `claude_desktop`, `codex`, `cursor`,
    `gemini_cli`, `windsurf`, `devin`, `opencode`, `antigravity`, `copilot_cli`,
-   `commandcode`, `vscode`, `grok_build`, `omp`, or `grok_bot`. `grok_bot` has no local
+   `commandcode`, `qwen_code`, `vscode`, `trae`, `grok_build`, `omp`, `pi`,
+   `hermes`, `qoder`, `droid`, `zcode`, `dsh`, or `grok_bot`. `grok_bot` has no local
    file registration: doctor reports the Grok Bot chat step, and setup does not
    write `mcp.json`. If the client is unknown, use `doctor --json` and
    inspect its registration results before choosing a setup scope.

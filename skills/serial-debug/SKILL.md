@@ -119,6 +119,7 @@ That runs `agent.acquire` → a tokened send through the managed service → `ag
 - Read `windows/README.md` for the user-controlled Windows menu.
 - Read `references/conserver.md` for Conserver workflow, access modes, and coordination rules.
 - Read `references/console-client.md` for Conserver client command details.
+- Read `references/mcp.md` before using serial MCP tools: MCP applies only when the user already has a serial MCP client configured or explicitly wants MCP tool usage, and the shared-console Conserver workflow stays the default.
 - Read `references/hardware-safety.md` before changing baud, wiring, voltage levels, RTS, DTR, reset/boot lines, or any access mode that can reset the target.
 - Read `references/troubleshooting.md` when a command fails, times out, loses sync, or two users collide on write access.
 

@@ -5,7 +5,7 @@ Use this path only when `/run-tickets` receives a GitHub parent issue. The paren
 ## Read the live graph
 
 1. Resolve the repository and parent from `#123`, `owner/repo#123`, or a GitHub issue URL. Reject pull-request URLs: this input must identify an issue.
-2. Read `docs/agents/issue-tracker.md` and the parent issue. Use the GitHub app for normal issue reads; use `gh`/GitHub API only when it is needed to read linked child issues or native dependency links.
+2. If `docs/agents/issue-tracker.md` exists, read it for the configured tracker workflow before reading the parent issue. Use the GitHub app for normal issue reads; use `gh`/GitHub API only when it is needed to read linked child issues or native dependency links.
 3. For every child, load title, body, comments, labels, assignee, state, and dependency data. Prefer native GitHub issue dependencies. If unavailable, parse a top-level `Blocked by: #12, #34` line in the issue body.
 4. Validate the graph before changing code: every blocker must be a ticket child, no issue may block itself, and every dependency cycle must be reported as an issue-number path.
 

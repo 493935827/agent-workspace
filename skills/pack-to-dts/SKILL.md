@@ -64,7 +64,7 @@ description: 下载任意类型的文件/包并打包为 7z 离线压缩包。�
 
 | 参数 | 说明 |
 |------|------|
-| `output-dir` | 输出目录（默认 `D:\trash\Work\Innostar-ic\DTS` 或用户指定） |
+| `output-dir` | 输出目录（必填，无默认值，由用户指定目标位置，如 `D:\trash\Work\Innostar-ic\DTS`） |
 | `output-name` | 7z 文件名（自动生成） |
 | `--help` | 查看帮助 |
 

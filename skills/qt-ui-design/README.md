@@ -34,6 +34,7 @@ producing or working with Graphical User Interfaces (GUI). Covers:
 | File | Purpose |
 |------|---------|
 | `SKILL.md` | Full skill instructions |
+| `LICENSE.txt` | License terms |
 
 ## License
 

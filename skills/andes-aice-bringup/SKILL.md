@@ -29,7 +29,7 @@ If MI_00 still uses FTDIBUS, inspect the ICE package's `libusb-AICE-driver/FTDI_
 
 Use `scripts/start_aice.ps1` for the deterministic sequence. Running the CPU-release script after ICEman has initialized JTAG is the wrong order.
 
-1. Stop existing `ICEman` and `openocd` processes and verify ports 2354, 4444, 6666, and 9901 are free.
+1. Stop existing `ICEman` and `openocd` processes. The starter script does not itself validate port occupancy; run the read-only listener check in `scripts/diagnose_aice.ps1` first and confirm ports 2354, 4444, 6666, and 9901 are free (or clear any occupant yourself) before starting.
 2. Restart the parent `VID_0403&PID_6010` USB device, or have the user physically unplug and reconnect it. Stopping ICEman alone does not clear retained FT2232 MPSSE/GPIO state.
 3. Wait until MI_00 and MI_01 both report `OK` with the required driver split.
 4. Run the CPU-release script through FTDI channel B. When A uses libusbK, D2XX may renumber B from channel 1 to channel 0; select the unique channel whose description ends in ` B` rather than changing drivers back.
