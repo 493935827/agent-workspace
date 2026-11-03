@@ -87,3 +87,11 @@ t5 验证：四个技能目录内（排除 `.venv`/`build`）剩余 `__pycache__
 ## 总体结论
 
 审计 P1 五项中 4 项完成（占位/空壳六技能、reg-to-ll 飞书链路说明、run-tickets 路径与配置、ui-ux-pro-max 指引），第 5 项（运行 `/setup-matt-pocock-skills`）属用户侧配置操作，本轮以条件式引用兜底保证不阻塞使用；P2 五项中 4 项完成（嵌套技能名与悬空引用、define-bounded-goal 参数修订、目录卫生——C3 按约定登记保留、文档-实现对齐），第 5 项触发策略确认（C6/C14）未动。P3 的 C21 本轮完成合并并将本轮全部改动同步至 `~\.agents\skills\`（20/20 逐字节一致），长期同步机制与仅单侧技能的双向同步仍为待决策项。全部被改 SKILL.md frontmatter 15/15 通过、本地引用核验无真实悬空（缺失项均为条件式/运行时/外部文件）。工作区 `skills/` 与 `~\.agents\skills\` 就本轮改动而言已恢复一致。
+
+## ׷�ǣ��û�ָʾ�ļ���ɾ����2026-11-02��commit 0444c69 ֮��
+
+- ���û�ȷ�ϣ�8 ��ȫɾ / ˫����ͬɾ / ���ύ git������ȫɾ������ 8 �����ܵ�˫������workspace skills/ �� ~\.agents\skills �� 8 ��Ŀ¼���� 16 ������
+  code-review��git-helper��python-helper��document-helper��jira-helper��internal-doc-search��define-bounded-goal��reg-to-ll����Ƕ�� workflow-run-skill����
+- ɾ��ǰ״̬���� 8 �������ڱ��� t1�Ct6 ��������޸�/��д/ģ�廯���� commit 0444c69 �ύ��ɾ���� commit 0444c69 ����Щ�ļ��ڹ�������δ�ύ�� deletion ״̬��
+- ɾ���������workspace skills/ 40 ������Ŀ¼��~\.agents\skills 41 ������ t6 ����ͬ���� internal-doc-search ��һ��ɾ������
+- Ӱ�죺reg-to-ll �� Excel��SVD/CMSIS/LL Driver ת����·�����б��ؼ��ܳ��أ�dist ���߰������Ժ���Щ���ܵľɸ�������Ӱ�����У�������־δ��ɾ���ύ git�����û�ѡ�񣩡�
