@@ -1,7 +1,21 @@
-"""Environment detection precedence: --env flag > AGENTCTL_ENV > local.yaml."""
+"""Environment detection precedence: --env flag > AGENTCTL_ENV > local.yaml.
+
+Also covers workspace root detection precedence: explicit --root >
+AGENT_WORKSPACE_ROOT > cwd upward search.
+"""
+from pathlib import Path
+
 import pytest
 
 from agentctl import environment as env_mod
+from agentctl.workspace import WorkspaceError, find_root
+
+
+def _bare_workspace(base: Path) -> Path:
+    """Minimal VERSION + configs/ tree; enough for find_root."""
+    (base / "configs").mkdir(parents=True)
+    (base / "VERSION").write_text("0.1.0\n", encoding="utf-8")
+    return base
 
 
 def test_cli_flag_wins(ws, monkeypatch):
@@ -39,3 +53,45 @@ def test_set_environment_writes_and_is_idempotent(ws, monkeypatch):
     assert (ws / "local.yaml").is_file()
     assert env_mod.set_environment(ws, "personal") is False
     assert env_mod.resolve(ws) == ("personal", "local.yaml")
+
+
+# --- find_root precedence: explicit --root > AGENT_WORKSPACE_ROOT > cwd ---
+
+
+def test_find_root_explicit_start_beats_env_var(tmp_path, monkeypatch):
+    root_a = _bare_workspace(tmp_path / "a" / "ws")
+    root_b = _bare_workspace(tmp_path / "b" / "ws")
+    monkeypatch.setenv("AGENT_WORKSPACE_ROOT", str(root_b))
+    assert find_root(root_a) == root_a.resolve()
+
+
+def test_find_root_explicit_start_does_not_fall_back_to_env(tmp_path, monkeypatch):
+    root_b = _bare_workspace(tmp_path / "b" / "ws")
+    monkeypatch.setenv("AGENT_WORKSPACE_ROOT", str(root_b))
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(WorkspaceError, match="--root"):
+        find_root(empty)
+
+
+def test_find_root_env_var_used_without_explicit_start(tmp_path, monkeypatch):
+    root_b = _bare_workspace(tmp_path / "b" / "ws")
+    monkeypatch.setenv("AGENT_WORKSPACE_ROOT", str(root_b))
+    assert find_root() == root_b.resolve()
+
+
+def test_find_root_invalid_env_var_raises(tmp_path, monkeypatch):
+    bogus = tmp_path / "not-a-workspace"
+    bogus.mkdir()
+    monkeypatch.setenv("AGENT_WORKSPACE_ROOT", str(bogus))
+    with pytest.raises(WorkspaceError, match="AGENT_WORKSPACE_ROOT"):
+        find_root()
+
+
+def test_find_root_walks_up_from_subdirectory(ws):
+    assert find_root(ws / "skills" / "alpha") == ws.resolve()
+
+
+def test_find_root_searches_upward_from_cwd(ws, monkeypatch):
+    monkeypatch.chdir(ws / "skills" / "alpha")
+    assert find_root() == ws.resolve()

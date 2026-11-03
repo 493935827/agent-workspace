@@ -30,8 +30,44 @@ def _looks_like_workspace(root: Path) -> bool:
     return (root / VERSION_FILE).is_file() and (root / "configs").is_dir()
 
 
+def _search_upwards(cur: Path) -> Path | None:
+    if _looks_like_workspace(cur):
+        return cur
+    for cand in cur.parents:
+        if _looks_like_workspace(cand):
+            return cand
+    return None
+
+
 def find_root(start: Path | None = None) -> Path:
-    """Locate the workspace root: AGENT_WORKSPACE_ROOT env var, else walk up."""
+    """Locate the workspace root by explicit priority:
+
+    1. explicit ``start`` (the CLI ``--root`` argument) -- authoritative
+       override, searched upwards from the given path;
+    2. ``AGENT_WORKSPACE_ROOT`` environment variable;
+    3. upward search from the current directory.
+
+    The environment variable never overrides an explicit ``start``:
+    ``--root`` is a documented explicit override, and letting the ambient
+    variable win (the old behaviour) made CLI runs -- including tests --
+    silently operate on a stale/wrong workspace after ``machine_setup``
+    had persisted ``AGENT_WORKSPACE_ROOT``. A workspace relocation then
+    kept targeting the old path.
+
+    Raises WorkspaceError when nothing is found, or when an explicitly
+    provided start / env var does not point at (or above) a valid
+    workspace.
+    """
+    if start is not None:
+        cur = start.expanduser().resolve()
+        root = _search_upwards(cur)
+        if root is None:
+            raise WorkspaceError(
+                f"Not inside an agent workspace (no VERSION + configs/ found "
+                f"at or above {cur}). --root is an explicit override and is "
+                "not replaced by AGENT_WORKSPACE_ROOT."
+            )
+        return root
     env = os.environ.get("AGENT_WORKSPACE_ROOT")
     if env:
         root = Path(env).expanduser().resolve()
@@ -41,16 +77,13 @@ def find_root(start: Path | None = None) -> Path:
                 "workspace (expects a VERSION file and a configs/ directory)."
             )
         return root
-    cur = (start or Path.cwd()).resolve()
-    if _looks_like_workspace(cur):
-        return cur
-    for cand in cur.parents:
-        if _looks_like_workspace(cand):
-            return cand
-    raise WorkspaceError(
-        "Not inside an agent workspace (no VERSION + configs/ found upwards). "
-        "cd into the workspace, or set AGENT_WORKSPACE_ROOT."
-    )
+    root = _search_upwards(Path.cwd().resolve())
+    if root is None:
+        raise WorkspaceError(
+            "Not inside an agent workspace (no VERSION + configs/ found upwards). "
+            "cd into the workspace, or set AGENT_WORKSPACE_ROOT."
+        )
+    return root
 
 
 def read_version(root: Path) -> str:
