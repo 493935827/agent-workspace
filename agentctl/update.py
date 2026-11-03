@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agentctl import gitops
-from agentctl.config import EffectiveConfig
+from agentctl.config import EffectiveConfig, build_effective
 from agentctl.links import LinkManager
 
 
@@ -66,13 +66,20 @@ def run_update(root: Path, cfg: EffectiveConfig, env: str, dry_run: bool = False
     new = gitops.current_commit(root)
     print(f"Updated {old[:8] if old else '?'} -> {new[:8] if new else '?'}")
 
-    # dependencies + links
-    try:
-        import yaml  # noqa: F401
+    # The pull may have changed configs/*.yaml (enabled skills, link targets,
+    # strategy), so rebuild the effective config from disk. The cfg argument
+    # was built before the pull and is stale here -- same pattern as
+    # bundle.import_bundle.
+    cfg = build_effective(root, env)
 
-        print("deps: pyyaml importable")
-    except ImportError:
-        print("WARN pyyaml missing; run: agentctl bootstrap")
+    # dependencies + links
+    for label, module in (("pyyaml", "yaml"), ("ruamel.yaml", "ruamel.yaml")):
+        try:
+            __import__(module)
+        except ImportError:
+            print(f"WARN {label} missing; run: agentctl bootstrap")
+        else:
+            print(f"deps: {label} importable")
 
     lm = LinkManager.from_config(root, cfg)
     for line in lm.apply(lm.plan(cfg.enabled_skills)):

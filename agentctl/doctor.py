@@ -1,6 +1,7 @@
 """Health checks. Prints PASS / WARN / FAIL. Never prints secret values."""
 from __future__ import annotations
 
+import importlib
 import json
 import shutil
 import subprocess
@@ -44,7 +45,14 @@ def _tool_version(cmd: str) -> str | None:
     return ""
 
 
-def run_checks(root: Path) -> list[Check]:
+def run_checks(
+    root: Path,
+    env: str | None = None,
+    env_source: str | None = None,
+) -> list[Check]:
+    """Collect checks. ``env``/``env_source`` let the caller (CLI --env)
+    override environment detection; when omitted it is resolved from
+    AGENTCTL_ENV > local.yaml, and an unset environment is reported as FAIL."""
     checks: list[Check] = []
 
     def add(name: str, status: str, detail: str = "") -> None:
@@ -63,12 +71,13 @@ def run_checks(root: Path) -> list[Check]:
         add("workspace", PASS, f"v{ver}, structure complete")
 
     # environment
-    env: str | None = None
-    try:
-        env, source = env_mod.resolve(root)
-        add("environment", PASS, f"{env} (from {source})")
-    except env_mod.EnvError as e:
-        add("environment", FAIL, str(e))
+    if env is None:
+        try:
+            env, env_source = env_mod.resolve(root)
+        except env_mod.EnvError as e:
+            add("environment", FAIL, str(e))
+    if env is not None:
+        add("environment", PASS, f"{env} (from {env_source})")
 
     cfg = build_effective(root, env)
     enabled = cfg.enabled_skills
@@ -96,13 +105,17 @@ def run_checks(root: Path) -> list[Check]:
     else:
         add("python", FAIL, f"{py_ver} is older than 3.10")
 
-    # pyyaml (the single runtime dependency)
-    try:
-        import yaml
-
-        add("pyyaml", PASS, f"yaml {yaml.__version__}")
-    except ImportError:
-        add("pyyaml", FAIL, "PyYAML missing (online: uv sync; offline: agentctl bootstrap)")
+    # runtime dependencies -- keep in sync with pyproject [project].dependencies
+    # (discovery/storage.py also uses ruamel.yaml, not just pyyaml)
+    for dep_label, dep_module in (("pyyaml", "yaml"), ("ruamel.yaml", "ruamel.yaml")):
+        try:
+            dep_mod = importlib.import_module(dep_module)
+        except ImportError:
+            add(dep_label, FAIL,
+                f"{dep_label} missing (online: uv sync; offline: agentctl bootstrap)")
+        else:
+            version = getattr(dep_mod, "__version__", "")
+            add(dep_label, PASS, f"{dep_label} {version}".rstrip())
 
     # tools declared in the profile (git/python always checked above)
     for name in sorted(cfg.tools):

@@ -48,7 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--env", dest="env_global", default=None,
                    metavar="ENV", help="读取有效配置时指定环境；优先于 AGENTCTL_ENV 和 local.yaml")
     p.add_argument("--root", default=None, metavar="PATH",
-                   help="工作区查找起点；AGENT_WORKSPACE_ROOT 已设置时优先使用该变量，否则从此路径或当前目录向上查找")
+                   help="工作区查找起点（显式覆盖，优先于 AGENT_WORKSPACE_ROOT）："
+                        "从该路径向上查找；未提供时先看 AGENT_WORKSPACE_ROOT，"
+                        "再从当前目录向上查找")
     p.add_argument("--version", action="version", version=f"agentctl {__version__}",
                    help="显示 agentctl 版本并退出")
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
@@ -175,13 +177,25 @@ def _resolve_env(root: Path, args: argparse.Namespace) -> tuple[str, str]:
     return env_mod.resolve(root, override)
 
 
+def _resolve_env_tolerant(root: Path, args: argparse.Namespace) -> tuple[str | None, str | None]:
+    """Environment resolution for commands that must also run before
+    bootstrap (status, doctor). An explicitly requested --env never degrades
+    silently: an invalid one raises, so main() reports ERROR with exit code 2
+    (same as link/update). With nothing configured anywhere, (None, None) is
+    returned and the command reports the gap itself."""
+    explicit = bool(getattr(args, "env", None) or args.env_global)
+    try:
+        return _resolve_env(root, args)
+    except env_mod.EnvError:
+        if explicit:
+            raise
+        return None, None
+
+
 # ---------------------------------------------------------------- commands
 
 def cmd_status(root: Path, args: argparse.Namespace) -> int:
-    try:
-        env, source = _resolve_env(root, args)
-    except env_mod.EnvError:
-        env, source = None, None
+    env, source = _resolve_env_tolerant(root, args)
     cfg = config_mod.build_effective(root, env)
 
     print("Agent Workspace")
@@ -239,7 +253,10 @@ def cmd_version(root: Path, args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(root: Path, args: argparse.Namespace) -> int:
-    return print_checks(run_checks(root))
+    # doctor honors the global --env; without any configured environment it
+    # still runs and reports the gap as a FAILed environment check.
+    env, source = _resolve_env_tolerant(root, args)
+    return print_checks(run_checks(root, env=env, env_source=source))
 
 
 def cmd_bootstrap(root: Path, args: argparse.Namespace) -> int:
