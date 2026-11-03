@@ -42,6 +42,21 @@ def make_workspace(tmp: Path, version: str = "0.1.0") -> Path:
     return root
 
 
+@pytest.fixture(autouse=True)
+def _isolate_workspace_env(monkeypatch):
+    """Scrub host workspace environment variables for every test.
+
+    ``machine_setup`` persists AGENT_WORKSPACE_ROOT into the user
+    environment, so tests that go through ``main()`` would otherwise
+    resolve the real user workspace and read/write its configs and state
+    instead of the throwaway fixture workspace (the 2026-10-26 pollution
+    incident). AGENTCTL_ENV is scrubbed for the same reason: it would
+    silently override the environment a test intends to exercise.
+    """
+    monkeypatch.delenv("AGENT_WORKSPACE_ROOT", raising=False)
+    monkeypatch.delenv("AGENTCTL_ENV", raising=False)
+
+
 @pytest.fixture
 def ws(tmp_path):
     return make_workspace(tmp_path)
