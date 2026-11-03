@@ -13,7 +13,7 @@
 ## 1. 项目目标
 
 - **Single Source of Truth**：所有公共 Agent / Skill / 脚本 / 配置模板只在一个 Git 仓库里维护。
-- **环境分层**：`Effective Config = common + <profile> + local.yaml + .env(secrets)`。
+- **环境分层**：`Effective Config = common + <profile> + local.yaml`；`.env` 只承载 Secret（doctor 检查通道），不参与配置合并。
 - **Secret 隔离**：`.env` 与 `local.yaml` 永远 gitignore，永远不进离线包。
 - **内网离线部署**：一条命令导出带校验和的 zip，内网一条命令导入。
 - **可重复准备工作区**：`agentctl bootstrap` 准备项目依赖、配置模板与 Skill 链接；系统软件、全局工具和编辑器扩展的自动安装尚未实现。
@@ -30,7 +30,7 @@
                             │ agentctl export --with-wheels
                             ▼
                  agent-workspace-vX.Y.Z-offline.zip
-                 (workspace/ wheels/ manifest.json SHA256SUMS)
+                 (workspace/ wheels/ npm/ manifest.json SHA256SUMS)
                             │  USB / 允许的通道（人工审查后）
                             ▼
                  ┌────────────────────────────┐
@@ -41,9 +41,10 @@
   每台机器本地:  local.yaml(环境标记+覆盖) + .env(Secret)  ← 永不进 Git / Bundle
 ```
 
-- **配置合并**（`agentctl/config.py`）：dict 递归合并；列表取并集（`skills` 跨层叠加），但 `links.targets` 这类机器路径**整表替换**；标量高层覆盖。
+- **配置合并**（`agentctl/config.py`）：dict 递归合并；列表取并集（`skills` 跨层叠加），但 `links.targets` 这类机器路径**整表替换**；标量高层覆盖；高层写 `null` 视为「未设置」、保留 base 子树（唯一例外：`resources.<provider>.<id>.version` 叶子上的显式 `null` 是 discovery 的「已登记、未锁版本」标记，会清除继承的 pin）；dict/list 与标量同键冲突直接报错（含键路径），标量误配列表键同样报错。
 - **Skill 链接**（`agentctl/links.py`）：`skills/` 是唯一事实源，Agent 工具目录里放链接。策略 `auto` = symlink → junction(Windows) → copy，可显式指定。copy 模式带 `.agentctl-copy` 内容哈希标记，源变更后自动检测 stale 并重同步。** чужой（不属于本工具管理的）目录只会先备份到 `backups/`，绝不直接删除。**
 - **环境判定**：`--env` 参数 > `AGENTCTL_ENV` 环境变量 > `local.yaml` 的 `environment:` 字段。
+- **工作区定位**：`--root` 参数 > `AGENT_WORKSPACE_ROOT` 环境变量 > 从当前目录向上查找；显式 `--root` 始终优先于环境变量。
 
 ## 3. 目录结构
 
@@ -55,6 +56,9 @@ agent-workspace/
 ├── scripts/           # agentctl.cmd / agentctl.sh 包装  [Git: 是]
 ├── tools/             # CLI/MCP 配置模板                 [Git: 是]
 ├── projects/          # 独立工程工作区（各带 .gitignore） [Git: 是]
+├── progress/          # 项目进度与对话归档索引           [Git: 是]
+├── skill-audit/       # 技能审计报告与修复日志           [Git: 是]
+├── .agent-teams/      # AgentTeams 团队运行记录          [Git: 是]
 ├── agentctl/          # CLI 工具源码 (Python)           [Git: 是]
 ├── tests/             # pytest 测试                     [Git: 是]
 ├── .env.example       # Secret schema（只有名字）       [Git: 是]
@@ -131,7 +135,7 @@ agentctl import agent-workspace-v0.1.0-offline.zip --env intranet
 agentctl import <zip> --dry-run      # 校验+预览，不落盘
 ```
 
-导入流程：校验 SHA256SUMS（不符即拒）→ 读 manifest 对比版本（降级需 `--force`）→ **备份当前 workspace 到 `backups/`** → 安装文件（wheels 进 `packages/wheels`）→ 重建链接 → doctor。写入阶段中途失败会自动回滚。
+导入流程：校验 SHA256SUMS 并与包内清单**双向恒等比对**（缺失与未列条目都拒绝，防夹带注入；包内 DENY 路径如 `.git/`、`user-data/` 一律拒绝）→ 读 manifest 对比版本（降级需 `--force`）→ **备份当前 workspace 到 `backups/`** → 安装文件（wheels 进 `packages/wheels`）→ 重建链接 → doctor。写入阶段中途失败会自动回滚。
 
 然后做一次离线 bootstrap 装依赖（见第 5 节内网部分）。
 
@@ -160,7 +164,7 @@ links:
 ```
 
 **Q: doctor 里 `tool:node` 是 WARN？**
-A: WARN 不阻断。profile `tools:` 里声明的工具缺失只提醒；只有 git/python/pyyaml 缺失才是 FAIL。
+A: WARN 不阻断。profile `tools:` 里声明的工具缺失只提醒；只有 git/python/pyyaml/ruamel.yaml 缺失才是 FAIL。
 
 **Q: 公司机不能用 GitHub？**
 A: 远程随便指：`git remote set-url origin <公司GitLab地址>`，`agentctl update` 只做 `git pull`，不关心 origin 是谁。
@@ -246,7 +250,7 @@ resources:
 | INDETERMINATE | 未扫描、不可用、执行/解析失败，或精确版本证据不足 |
 | ABSENT | 上次快照有、现在没有，且没有对应声明 |
 
-历史变化单独保存在 `history`：首次为 NO_BASELINE，范围不可比较为 INCOMPARABLE，其余包括 APPEARED、DISAPPEARED、VERSION_CHANGED、RESTORED、UNCHANGED。MATCH 可以同时显示 RESTORED。`diff` 默认只汇总 MATCH，`--all` 显示全部；`scan --new` 隐藏已登记和已忽略项目。ignore 只按精确身份匹配，不隐藏已声明资源的异常。
+历史变化单独保存在 `history`：首次为 NO_BASELINE，范围不可比较为 INCOMPARABLE，其余包括 APPEARED、DISAPPEARED、VERSION_CHANGED、RESTORED、UNCHANGED。MATCH 可以同时显示 RESTORED。`diff` 默认隐藏 MATCH 与已忽略项（summary 仍统计全量），`--all` 显示全部；`scan --new` 只显示未登记且未忽略的 NEW/UNKNOWN。ignore 只按精确身份匹配，不隐藏已声明资源的异常。
 
 **扫描范围与失败处理：**
 

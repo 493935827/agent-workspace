@@ -1,14 +1,14 @@
 # 项目进度
 
-最后更新：2026-10-26 16:23（Asia/Hong_Kong）
+最后更新：2026-11-03 11:00（Asia/Hong_Kong）
 
 ## 当前概况
 
 - 当前目标：维护可跨个人、公司、内网环境重建的 Agent/Skill 与开发软件；安全子集经私有 GitHub Release 分发。
-- 近期里程碑：progress/交接约定改版为渐进式披露三层；agentctl 第一版全流程验收；serial-debug skill 换 Qt 工作台并同步上游；export 扫描误报修复；skills CLI 与 ui-ux-pro-max 入库；handoff/git-delivery 提交信息规范成文（Conventional Commits + Handoff trailer）。serial-gui 本地开发克隆已删，以 skill 内置副本与上游 493935827/serial-gui 为准（细节见归档行）。
-- Skills：源 48、公共配置 43；personal/company/intranet 预期启用 45/45/44（REA `reverse-engineer-anything` v42 已入库，本机 personal 已链接，其余环境待重链；REA 本体与分析引擎另装）；公司机上次实测链接 44/44。
+- 近期里程碑：progress/交接约定改版为渐进式披露三层；agentctl 第一版全流程验收；serial-debug skill 换 Qt 工作台并同步上游；export 扫描误报修复；skills CLI 与 ui-ux-pro-max 入库；handoff/git-delivery 提交信息规范成文（Conventional Commits + Handoff trailer）。2026-11-02 skill-audit 全流程完成（48→40 技能，8 个按用户决策下架）；2026-10-26 workspace 全面 review 的 agentctl 修复已合入并全量测试转绿；.agent-teams 团队运行记录入库。serial-gui 本地开发克隆已删，以 skill 内置副本与上游 493935827/serial-gui 为准（细节见归档行）。
+- Skills：源 43（skill-audit 后下架 8 个：code-review/git-helper/python-helper/document-helper/jira-helper/internal-doc-search/define-bounded-goal/reg-to-ll；新收录 cli-anything/cli-hub-meta-skill/hallmark）；common 启用 38，personal/company/intranet 预期 38/37/37，本机实测 38/38 全 PASS（REA `reverse-engineer-anything` v42 已入库、本机已链为托管 junction；REA 本体与分析引擎另装）。
 - serial-gui：标题栏「拖不动」修复完成（2026-10-22 `998c023`：QMenuBar 空白死区接管 + 标签行 DragStrip + 最大化先还原；`drag_repro7` 真鼠标注入决定性回归 + 118 测试绿）；实机人工验收待做，归档在 [skill 侧 handoff](../skills/serial-debug/progress/handoff-20261022-111757-titlebar-drag-fix.md)。
-- agentctl：中文 help、全局入口与 16 个子命令已验证（README；appconfig：应用配置 capture/deploy，CopyQ 已纳管，设置模板 tools/copyq；machine_setup：bootstrap 自动配置机器级环境——AGENT_WORKSPACE_ROOT/用户 PATH/PowerShell 执行策略与 profile 标记块，doctor machine:* 查漂移，本机部署验证）；export 包范围整体排除 `projects/cloudmusic-r` 逆向工程（不入离线包、不进密钥扫描，import 拒绝包内该前缀条目，dry-run 实测 1834→435 文件）；待修：update 重链用拉取前旧配置（新增启用 skill 需手动 link）、test_discovery 4 项存量失败且污染真实 personal.yaml（已还原；2026-10-21 全量 pytest 再次复现并还原）——均待用户决策。
+- agentctl：中文 help、全局入口与 16 个子命令已验证（README；appconfig：应用配置 capture/deploy，CopyQ 已纳管，设置模板 tools/copyq；machine_setup：bootstrap 自动配置机器级环境，doctor machine:* 查漂移，本机部署验证）；2026-11-03 review 修复合入：find_root 显式优先级、conftest 环境隔离、merge 显式化（null=未设置保留 base，`resources.*.version` 显式 null 为解锁例外）、update 重链 pull 后重建配置、bundle DENY 清单补全与 import 双向恒等校验、doctor/status --env 统一、machine env 覆盖先备份、gitops 超时与凭据脱敏；全量测试 180 passed/1 skipped，configs/`.agentctl` 零污染；export 包范围整体排除 `projects/cloudmusic-r`（import 同拒该前缀）。
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release；CopyQ 配置+剪贴板历史已发布于私有 user-data-2026-10-21 Release（agent-software-packages，SHA-256 校验通过，可用 agentctl appconfig deploy 恢复）；本机实装 CopyQ 3.12.0（交付包内为 16.0.0 安装器，升级未做），条目 20 行截断已配置生效。
 - 开发配套与安全边界：26 个精确版本 VSIX 与 OneNote MCP 的 npm 依赖离线就绪；OneNote 7 笔记本全量归档按敏感数据保管；zoxide v0.10.0 已接入（用法见 AGENTS.md）；`user-data/`、OneNote 归档与受限安装介质不入公开仓库。
 - 环境装机：CLI-Anything——cli-hub v0.4.1 入 PATH（uv tool）、meta-skill 与 7 阶段生成器 skill 已装，未实战；逆向 REA——rea-agents 6.7.0 全局装并注册 DSH（Cordis patch：MCP 207 工具+skill v42），Ghidra 12.1.4+JDK 21 就于 D:\App\tools（SHA-256 校验、doctor 全绿），待重启 Harness 实测 PE；本地搜索 XERJ——v1.0.0-rc.99 经镜像下载并 SHA-256 校验装于 %LOCALAPPDATA%\Programs\xerj 已入 PATH（gRPC 8081→9202 规避 McAfee 占用，配置 ~\xerj-data\xerj.toml），服务 127.0.0.1:9200 实测 autoindex/def/BM25/语义/混合/batch/MCP 22 工具/Corpus Hub lz4 全通，上游克隆 projects/xerj 仅本地同步不入库。
@@ -22,6 +22,7 @@
 
 | 日期 / 对话 | 完成内容 | 交接 |
 | --- | --- | --- |
+| 2026-11-03 / skill-audit 收尾与 review 修复合入（本对话） | skill-audit P1/P2 修复（0444c69）与 8 技能下架推送 GitHub；agentctl workspace-review 修复按组提交并调和 merge 语义（`resources.*.version` 显式 null 解锁例外），全量测试 180 绿、configs 零污染；.agent-teams 运行记录与 3 个 agents 独有技能（cli-anything/cli-hub-meta-skill/hallmark）入库 | [skill-audit 修复日志](../skill-audit/fix-log.md) · [catalog-map](../skill-audit/catalog-map.md) |
 | 2026-10-26 / XERJ 本地搜索引擎装机与实测（session ID 不可见） | v1.0.0-rc.99 经镜像下载并 SHA-256 校验安装、入 PATH；8081 被 McAfee 占用改 9202；实测 autoindex/def/BM25/语义/混合/batch/MCP(22 工具)/hub lz4 全通（默认语义 embedder 为离线词法，弱）；上游克隆 projects/xerj 本地同步（.gitignore 不入库）；MCP 接入 dsh 未做待用户决策 | [XERJ 装机与实测](handoff-20261026-162219-xerj-install.md) |
 | 2026-10-22 / CloudMusic_R 工程收录 agent-workspace（`session-e5c1492fa74d`） | 全工程 1401 文件约 130MB 原样入库 projects/cloudmusic-r 并推送 `d95800a`；cookies/webdb/venv 三类按铁律与 GitHub 100MiB 限制本地保留；离线包体积影响待决策 | [CloudMusic_R 工程收录](handoff-20261022-172837-cloudmusic-r-ingest.md) |
 | 2026-10-22 / Git push 定向拦截排查（session ID 不可见） | 定位系统级 git push 拦截（第二参数匹配）并纠正「安装损坏」误诊；`-c` 变通写入 git-delivery 技能；四笔提交推送（`3672f12` 经 GitHub API 复刻）；离线包重打待搬运内网；用户终端是否受影响未验证 | [Git push 拦截排查与分发](handoff-20261022-153940-git-push-audit.md) |
