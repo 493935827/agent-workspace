@@ -3,6 +3,7 @@
 local.yaml
 .agentctl/
 user-data/
+tools/mcp-registry.json
 
 # --- Generated artifacts ---
 backups/
@@ -10,6 +11,10 @@ dist/
 packages/
 manifests/
 work/
+pytest-cache-files-*/
+
+# --- Large local archives (kept on disk; never enter git) ---
+archive/
 
 # --- Python ---
 __pycache__/
