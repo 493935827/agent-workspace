@@ -4,9 +4,6 @@ description: Intranet machine - offline bundle deployments
 network:
   internet: false
 
-skills:
-  - internal-doc-search
-
 exclude_skills:
   - image-tools
 
