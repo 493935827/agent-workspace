@@ -1,9 +1,24 @@
 """Thin, explicit git wrappers. All output is captured, never streamed."""
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
+
+# Generous enough for a slow fetch/pull; short enough that a hung git process
+# cannot stall the CLI forever.
+DEFAULT_TIMEOUT = 120
+
+# scheme://userinfo@ — userinfo (credentials) is masked before it reaches any
+# GitError message; scp-like user@host:path is left alone (ambiguous with
+# email addresses, and git errors leak credentials via scheme URLs).
+_CRED_RE = re.compile(r"([a-zA-Z][a-zA-Z0-9+.\-]*://)([^\s@/]+)@")
+
+
+def redact(text: str) -> str:
+    """Mask userinfo embedded in URLs: https://user:pass@host -> https://***@host."""
+    return _CRED_RE.sub(r"\1***@", text)
 
 
 class GitError(RuntimeError):
@@ -15,16 +30,21 @@ def available() -> bool:
 
 
 def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    proc = subprocess.run(
-        ["git", "-C", str(root), *args],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdin=subprocess.DEVNULL,  # never prompt (credentials, etc.)
+            timeout=DEFAULT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise GitError(f"git {args[0]} timed out after {DEFAULT_TIMEOUT}s") from None
     if check and proc.returncode != 0:
         msg = proc.stderr.strip() or proc.stdout.strip() or f"exit {proc.returncode}"
-        raise GitError(f"git {args[0]} failed: {msg}")
+        raise GitError(f"git {args[0]} failed: {redact(msg)}")
     return proc
 
 

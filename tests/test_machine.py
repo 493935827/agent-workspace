@@ -72,14 +72,83 @@ def test_env_and_path_set_then_idempotent(tmp_path, fake_reg, no_profiles):
     assert fake_reg.values["Path"][0] == str(root / "scripts")  # no duplicate
 
 
-def test_env_update_keeps_type_and_logs_old_value(tmp_path, fake_reg, no_profiles):
+def test_env_update_backs_up_old_value_and_redacts_logs(tmp_path, fake_reg, no_profiles):
+    """Overwrite of an existing env var: old value goes to the machine-state
+    snapshot, never to the log; the registry type is preserved."""
     root = tmp_path / "ws"
     fake_reg.values["AGENT_WORKSPACE_ROOT"] = ("D:\\old", machine._REG_EXPAND_SZ)
     cfg = make_cfg({"env_vars": {"AGENT_WORKSPACE_ROOT": "{root}"}})
 
     log = machine._apply_windows(root, cfg.machine_setup, dry_run=False)
+
     assert fake_reg.values["AGENT_WORKSPACE_ROOT"] == (str(root), machine._REG_EXPAND_SZ)
-    assert any("was: D:\\old" in line for line in log)
+    # values (old and new) must not appear in any log line
+    assert all("D:\\old" not in line and str(root) not in line for line in log)
+    assert any("AGENT_WORKSPACE_ROOT" in line and "backed up" in line for line in log)
+
+    import json
+    snap = json.loads(
+        (root / ".agentctl" / "machine-state.json").read_text(encoding="utf-8"))
+    record = snap["env_vars"]["AGENT_WORKSPACE_ROOT"]
+    assert record["value"] == "D:\\old"
+    assert record["reg_type"] == machine._REG_EXPAND_SZ
+    assert record["saved_at"]  # timestamped for manual restore
+
+
+def test_env_backup_keeps_first_original_and_is_idempotent(tmp_path, fake_reg, no_profiles):
+    """Repeated runs with changing configs: the user's original value survives,
+    already-correct values cause no write and no churn."""
+    import json
+    root = tmp_path / "ws"
+    fake_reg.values["AGENT_WORKSPACE_ROOT"] = ("D:\\original", machine._REG_SZ)
+    cfg1 = make_cfg({"env_vars": {"AGENT_WORKSPACE_ROOT": "{root}"}})
+
+    machine._apply_windows(root, cfg1.machine_setup, dry_run=False)
+    snap_path = root / ".agentctl" / "machine-state.json"
+    first = json.loads(snap_path.read_text(encoding="utf-8"))
+
+    # config changes -> second overwrite; snapshot must keep the FIRST original
+    cfg2 = make_cfg({"env_vars": {"AGENT_WORKSPACE_ROOT": "C:\\elsewhere"}})
+    machine._apply_windows(root, cfg2.machine_setup, dry_run=False)
+    second = json.loads(snap_path.read_text(encoding="utf-8"))
+    assert second["env_vars"]["AGENT_WORKSPACE_ROOT"]["value"] == "D:\\original"
+    assert second == first
+
+    # re-running the current config: "already set", nothing written anywhere
+    before = len(fake_reg.writes)
+    log = machine._apply_windows(root, cfg2.machine_setup, dry_run=False)
+    assert len(fake_reg.writes) == before
+    assert any("already set" in line for line in log)
+
+
+def test_env_backup_failure_blocks_overwrite(tmp_path, fake_reg, no_profiles, monkeypatch):
+    """If the snapshot cannot be written, the user value is never overwritten."""
+    root = tmp_path / "ws"
+    fake_reg.values["AGENT_WORKSPACE_ROOT"] = ("D:\\precious", machine._REG_SZ)
+    cfg = make_cfg({"env_vars": {"AGENT_WORKSPACE_ROOT": "{root}"}})
+
+    def broken_backup(root, name, cur):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(machine, "_backup_env_var", broken_backup)
+
+    log = machine._apply_windows(root, cfg.machine_setup, dry_run=False)
+
+    assert fake_reg.values["AGENT_WORKSPACE_ROOT"] == ("D:\\precious", machine._REG_SZ)
+    assert any("FAIL backup previous value" in line for line in log)
+
+
+def test_env_backup_dry_run_writes_nothing(tmp_path, fake_reg, no_profiles):
+    root = tmp_path / "ws"
+    fake_reg.values["AGENT_WORKSPACE_ROOT"] = ("D:\\old", machine._REG_SZ)
+    cfg = make_cfg({"env_vars": {"AGENT_WORKSPACE_ROOT": "{root}"}})
+
+    log = machine._apply_windows(root, cfg.machine_setup, dry_run=True)
+
+    assert fake_reg.values["AGENT_WORKSPACE_ROOT"] == ("D:\\old", machine._REG_SZ)
+    assert fake_reg.writes == []
+    assert not (root / ".agentctl" / "machine-state.json").exists()
+    assert all("D:\\old" not in line and str(root) not in line for line in log)
 
 
 def test_path_appends_preserving_order_and_expand_type(tmp_path, fake_reg, no_profiles):

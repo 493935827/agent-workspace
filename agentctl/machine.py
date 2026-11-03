@@ -2,7 +2,9 @@
 
 Declarative source: the ``machine_setup:`` config section (common + profile +
 local layers). Applied idempotently by ``agentctl bootstrap``; drift is
-reported by ``agentctl doctor`` as WARN-level ``machine:*`` checks.
+reported by ``agentctl doctor`` as WARN-level ``machine:*`` checks. Overwriting
+a user env var that already holds a different value snapshots the old value
+into ``.agentctl/machine-state.json`` first; values are never logged.
 
 Windows writes ``HKCU\\Environment`` (env vars, PATH) and injects a marked
 block into the PowerShell profiles; the execution policy is only ever raised
@@ -18,8 +20,10 @@ Two environment variables are deliberately NOT set by the shipped config:
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -49,6 +53,9 @@ _REG_EXPAND_SZ = 2
 
 # ------------------------------------------------------------------ helpers
 
+MACHINE_STATE_FILE = ".agentctl/machine-state.json"
+
+
 def _resolve_value(value: str, root: Path) -> str:
     """Expand the {root} placeholder and a leading ~ (path-like values only)."""
     out = value.replace("{root}", str(root))
@@ -57,6 +64,43 @@ def _resolve_value(value: str, root: Path) -> str:
     elif value.startswith("{root}"):
         out = os.path.normpath(out)
     return out
+
+
+def _machine_state_path(root: Path) -> Path:
+    return root / ".agentctl" / "machine-state.json"
+
+
+def _backup_env_var(root: Path, name: str, cur: tuple[str, int]) -> None:
+    """Snapshot the value a user env var had before agentctl overwrites it.
+
+    Written to ``.agentctl/machine-state.json`` (gitignored, machine-local).
+    The FIRST recorded original wins: later re-runs keep it, so the user's
+    pre-agentctl value survives any number of config changes. Restoring is a
+    manual step; this file is the escape hatch, not an auto-rollback.
+    """
+    path = _machine_state_path(root)
+    data: dict = {}
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    env_vars = data.setdefault("env_vars", {})
+    if not isinstance(env_vars, dict):
+        env_vars = data["env_vars"] = {}
+    if name in env_vars:
+        return  # keep the earliest original; re-runs stay idempotent
+    env_vars[name] = {
+        "value": cur[0],
+        "reg_type": int(cur[1]),
+        "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    data.setdefault("version", 1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
 
 
 def _norm_entry(entry: str) -> str:
@@ -295,20 +339,36 @@ def _apply_windows(root: Path, ms: dict, dry_run: bool) -> list[str]:
     wrote = False
 
     # 1. user environment variables
+    # Values (old and new) are never logged: env var values can hold secrets,
+    # and overwrites are backed up to the machine-state snapshot first.
     for name in sorted(ms.get("env_vars") or {}):
         value = _resolve_value(str((ms.get("env_vars") or {})[name]), root)
         cur = _read_user_value(name)
         if cur is not None and cur[0] == value:
             log.append(f"machine: env {name} already set")
             continue
-        was = f" (was: {cur[0]})" if cur else ""
         if dry_run:
-            log.append(f"[dry-run] machine: set user env {name}={value}{was}")
+            if cur is not None:
+                log.append(f"[dry-run] machine: set user env {name} "
+                           "(existing value differs; it would be backed up first)")
+            else:
+                log.append(f"[dry-run] machine: set user env {name}")
             continue
+        if cur is not None:
+            try:
+                _backup_env_var(root, name, cur)
+            except OSError as e:
+                # never overwrite a user value we failed to snapshot
+                log.append(f"FAIL backup previous value of {name}: {e}")
+                continue
         try:
             _write_user_value(name, value, cur[1] if cur else _REG_SZ)
             wrote = True
-            log.append(f"machine: set user env {name}={value}{was}")
+            if cur is not None:
+                log.append(f"machine: set user env {name} "
+                           "(previous value backed up to " + MACHINE_STATE_FILE + ")")
+            else:
+                log.append(f"machine: set user env {name}")
         except OSError as e:
             log.append(f"FAIL set user env {name}: {e}")
 
