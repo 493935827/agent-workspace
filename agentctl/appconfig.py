@@ -108,6 +108,26 @@ def _excluded(rel_posix: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(rel_posix, _normalize(p)) for p in patterns)
 
 
+def _walk_tree_files(base: Path) -> list[Path]:
+    """Regular files under base, never leaving the tree.
+
+    pathlib rglob("**") on Python <= 3.12 follows symlinked directories,
+    which can pull files from outside an app's target (or a capture dir)
+    into a capture/hash. os.walk(followlinks=False) with explicit pruning
+    stays inside the tree; symlinked files are skipped as well.
+    """
+    out: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+        dirnames[:] = sorted(d for d in dirnames
+                             if not (Path(dirpath) / d).is_symlink())
+        for fn in filenames:
+            p = Path(dirpath) / fn
+            if p.is_symlink() or not p.is_file():
+                continue
+            out.append(p)
+    return out
+
+
 def match_files(target: Path, include: list[str], exclude: list[str]) -> list[Path]:
     """Existing files under target matching include and not exclude.
 
@@ -116,7 +136,7 @@ def match_files(target: Path, include: list[str], exclude: list[str]) -> list[Pa
     """
     if not include or not target.is_dir():
         return []
-    all_files = [p for p in sorted(target.rglob("*")) if p.is_file()]
+    all_files = sorted(_walk_tree_files(target))
     out: list[Path] = []
     for p in all_files:
         rel = p.relative_to(target).as_posix()
@@ -218,19 +238,22 @@ def zip_capture(out_dir: Path, dry_run: bool = False) -> Path:
     if not out_dir.is_dir():
         raise AppConfigError(f"capture directory not found: {out_dir}")
     zip_path = out_dir.with_suffix(".zip")
+    # per-app sums file: one shared SHA256SUMS.txt beside the ZIPs would be
+    # overwritten by every capture, leaving only the last app verifiable
+    sums_path = out_dir.parent / f"SHA256SUMS-{out_dir.name}.txt"
     if dry_run:
-        print(f"[dry-run] would write {zip_path} + SHA256SUMS.txt")
+        print(f"[dry-run] would write {zip_path} + {sums_path.name}")
         return zip_path
     if zip_path.exists():
         zip_path.unlink()
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in sorted(out_dir.rglob("*")):
-            if p.is_file():
-                zf.write(p, p.relative_to(out_dir.parent).as_posix())
+        for p in sorted(_walk_tree_files(out_dir)):
+            zf.write(p, p.relative_to(out_dir.parent).as_posix())
     sums = f"{shasum(zip_path)}  {zip_path.name}\n"
-    (out_dir.parent / "SHA256SUMS.txt").write_text(sums, encoding="utf-8")
+    sums_path.write_text(sums, encoding="utf-8")
     print(f"ZIP   {zip_path}  ({zip_path.stat().st_size} bytes)")
     print(f"SHA-256 {shasum(zip_path)}")
+    print(f"SUMS  {sums_path.name}")
     return zip_path
 
 

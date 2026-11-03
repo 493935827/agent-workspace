@@ -138,8 +138,38 @@ def test_zip_capture_roundtrip(copyq_ws):
         names = zf.namelist()
         assert "copyq/copyq.ini" in names
         assert "copyq/manifest.json" in names
-    sums = (tmp / "user-data" / "SHA256SUMS.txt").read_text(encoding="utf-8")
+    sums = (tmp / "user-data" / "SHA256SUMS-copyq.txt").read_text(encoding="utf-8")
     assert sums.startswith(sha256_of(zip_path))
+
+
+def test_zip_capture_sums_are_per_app(copyq_ws):
+    # 多应用先后 zip 时 SHA256SUMS 按应用分文件，不再互相覆盖
+    tmp, _, cfg = copyq_ws
+    out1 = tmp / "user-data" / "copyq"
+    capture(get_app(tmp, cfg, "copyq"), out1)
+    zip1 = zip_capture(out1)
+
+    other = tmp / "user-data" / "otherapp"
+    other.mkdir(parents=True)
+    (other / "other.ini").write_text("x=1", encoding="utf-8")
+    zip2 = zip_capture(other)
+
+    sums1 = tmp / "user-data" / "SHA256SUMS-copyq.txt"
+    sums2 = tmp / "user-data" / "SHA256SUMS-otherapp.txt"
+    assert sums1.is_file() and sums2.is_file()
+    assert sums1.read_text(encoding="utf-8").startswith(sha256_of(zip1))
+    assert sums2.read_text(encoding="utf-8").startswith(sha256_of(zip2))
+    assert not (tmp / "user-data" / "SHA256SUMS.txt").exists()
+
+
+def test_zip_capture_dry_run_names_per_app_sums(copyq_ws, capsys):
+    tmp, _, cfg = copyq_ws
+    out = tmp / "user-data" / "copyq"
+    out.mkdir(parents=True)
+    zip_capture(out, dry_run=True)
+    assert "[dry-run]" in capsys.readouterr().out
+    assert not (tmp / "user-data" / "copyq.zip").exists()
+    assert not (tmp / "user-data" / "SHA256SUMS-copyq.txt").exists()
 
 
 def test_zip_capture_requires_dir(tmp_path):

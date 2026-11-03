@@ -3,8 +3,8 @@ import os
 
 import pytest
 
-from agentctl.links import (FOREIGN, HEALTHY, LinkManager, create_link,
-                            is_junction, link_state)
+from agentctl.links import (FOREIGN, HEALTHY, LinkError, LinkManager,
+                            create_link, is_junction, link_state)
 
 
 def _make_skill(root):
@@ -64,6 +64,40 @@ def test_foreign_directory_is_backed_up_not_deleted(tmp_path):
     assert len(backups) == 1
     assert (backups[0] / "userfile.txt").read_text(encoding="utf-8") == "precious"
     assert link_state(src, tgt) == HEALTHY
+
+
+def test_create_link_copy_never_merges_foreign_directory(tmp_path):
+    # create_link 是公开 API：copy 到已存在、无 .agentctl-copy 标记的外来
+    # 目录时不得直接合并内容——无 backup_root 就拒绝，有则先备份再复制
+    root = tmp_path
+    src = _make_skill(root)
+    tgt = root / "agent-skills" / "mine"
+    tgt.mkdir(parents=True)
+    (tgt / "userfile.txt").write_text("precious", encoding="utf-8")
+
+    with pytest.raises(LinkError):
+        create_link(src, tgt, strategy="copy")
+    assert (tgt / "userfile.txt").read_text(encoding="utf-8") == "precious"
+    assert not (tgt / "SKILL.md").exists()
+
+    assert create_link(src, tgt, strategy="copy",
+                       backup_root=root / "backups") == "copy"
+    backups = list((root / "backups").iterdir())
+    assert len(backups) == 1
+    assert (backups[0] / "userfile.txt").read_text(encoding="utf-8") == "precious"
+    assert (tgt / "SKILL.md").exists()
+    assert link_state(src, tgt) == HEALTHY
+
+
+def test_plan_rejects_unsafe_skill_names(tmp_path):
+    # skill 名含路径分隔符或 '..' 会逃出 skills/ 与目标目录，必须在 plan
+    # 阶段拒绝
+    root = tmp_path
+    _make_skill(root)
+    lm = LinkManager(root, "copy", [root / "agent-skills"])
+    for bad in ("../evil", "a/b", "..", "", "a\\b"):
+        with pytest.raises(LinkError):
+            lm.plan([bad])
 
 
 def test_apply_is_idempotent(tmp_path):

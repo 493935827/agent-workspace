@@ -10,21 +10,31 @@ Bundle layout (zip):
 
 Safety rules:
   - .env / local.yaml / backups / dist / packages / manifests never enter
-    a bundle, regardless of how the file list was collected
+    a bundle, regardless of how the file list was collected; the deny list
+    mirrors .gitignore (user-data, work, .agent-teams, .uv-cache, *.7z, ...)
+    and applies to both the git and the walk collection mode
+  - collection never follows symlinked directories (Python <= 3.12 rglob
+    would walk out of the workspace); symlinked files are skipped too
   - DENY_PREFIXES paths are outside the bundle scope entirely (never
     collected, never secret-scanned); import refuses bundle entries
     under them so the local copy stays authoritative
   - every exported text file is scanned for secret-looking content and
-    export refuses to continue on a hit (reports file:line, never the value)
-  - import verifies SHA256SUMS before touching anything and refuses
-    bundles that contain .env / local.yaml or unsafe paths
-  - import backs up the current workspace first; failures during the write
-    phase roll back automatically
+    export refuses to continue on a hit (reports file:line, never the
+    value); large files are streamed and scanned like everything else,
+    and the canary marker only exempts the known canary samples
+  - import verifies SHA256SUMS before touching anything: the zip contents
+    must equal the sums list (unlisted and missing entries are both
+    refused, so extra files cannot be smuggled past the checksums), and
+    entries under excluded directories (.git/ ...) are refused in depth
+  - import backs up the current workspace first; failures during extract,
+    environment switch, re-link or doctor roll back automatically,
+    including removing files the import had created
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -38,26 +48,44 @@ from agentctl import environment as env_mod
 from agentctl import gitops, workspace
 from agentctl.config import build_effective
 from agentctl.doctor import print_checks, run_checks
-from agentctl.links import LinkManager
+from agentctl.links import COPY_MARKER, LinkError, LinkManager, remove_managed
 from agentctl.utils import now_ts, safe_zip_parts, shasum
 
-DENY_NAMES = {".env", "local.yaml"}
+DENY_NAMES = {".env", "local.yaml", "Thumbs.db", ".DS_Store"}
 DENY_DIRS = {".git", ".venv", "__pycache__", "backups", "dist", "packages",
-             "manifests", "node_modules", ".pytest_cache", ".hatch", ".agentctl"}
-DENY_SUFFIXES = (".pyc", ".pyo", ".zip", ".egg-info")
+             "manifests", "node_modules", ".pytest_cache", ".hatch", ".agentctl",
+             "user-data", "work", ".agent-teams", ".uv-cache"}
+DENY_SUFFIXES = (".pyc", ".pyo", ".pyd", ".zip", ".7z", ".egg-info")
 
 # Relative-POSIX path prefixes (workspace-root anchored) that sit outside
 # the bundle scope entirely. Used for content that is legitimately tracked
-# in git but must never ship offline: the CloudMusic_R reverse-engineering
-# workspace (projects/cloudmusic-r) trips the private-key scan with vendor
-# JS chunks and is of no use on intranet machines. Deliberate hard-coded
-# list, auditable in git; import refuses bundle entries under these
-# prefixes instead of silently overwriting the local copy.
-DENY_PREFIXES = ("projects/cloudmusic-r/",)
+# in git but must never ship offline:
+#   - projects/cloudmusic-r: the CloudMusic_R reverse-engineering workspace
+#     trips the private-key scan with vendor JS chunks and is of no use on
+#     intranet machines
+#   - projects/xerj: upstream reference clone (.gitignore: local sync only)
+# Deliberate hard-coded list, auditable in git, kept in sync with
+# .gitignore; import refuses bundle entries under these prefixes instead of
+# silently overwriting the local copy.
+DENY_PREFIXES = ("projects/cloudmusic-r/", "projects/xerj/")
 
-# Lines ending with this marker are exempt from the secret scan; used for
-# deliberate canary samples in tests. Auditable: grep for the marker.
+# A line carrying this marker is scanned as usual; only pattern matches that
+# ARE one of the known canary samples below are exempt on such a line. A
+# real secret cannot hide behind the marker: any other match on the same
+# line is still reported. Auditable: grep for the marker and the samples
+# (the registry lines below carry the marker themselves).
 CANARY_MARKER = "# agentctl-canary"
+CANARY_SAMPLES = (
+    "sk-abcdefghijklmnopqrstuvwx",        # agentctl-canary
+    "sk-proj-q1w2e3r4t5y6u7i8o9p0z1x2",   # agentctl-canary
+    "sk-ant-api03-q1w2e3r4t5y6u7i8o9p0z1x2",  # agentctl-canary
+    "sk-or-v1-q1w2e3r4t5y6u7i8o9p0z1x2",  # agentctl-canary
+    "-----BEGIN RSA PRIVATE KEY-----",    # agentctl-canary
+)
+
+# Files above this size are still scanned (streaming, bounded memory); the
+# size only controls the visibility warning. Nothing is skipped silently.
+LARGE_FILE_WARN_BYTES = 1_000_000
 
 SECRET_PATTERNS = [
     # 'sk-' must start a standalone token (not sit inside a hyphenated word
@@ -82,16 +110,38 @@ class BundleError(RuntimeError):
 # ------------------------------------------------------------------ collect
 
 def _denied(parts: list[str]) -> bool:
-    if parts[-1] in DENY_NAMES:
-        return True
-    if any(p in DENY_DIRS for p in parts):
-        return True
-    return parts[-1].endswith(DENY_SUFFIXES)
+    # name-based deny lists apply to every path segment (a file inside a
+    # denied directory is denied), suffixes also match directory segments
+    # so e.g. *.egg-info/ trees are excluded as a whole, like .gitignore
+    for p in parts:
+        if p in DENY_DIRS or p.endswith(DENY_SUFFIXES):
+            return True
+    return parts[-1] in DENY_NAMES
 
 
 def _denied_prefix(parts: list[str]) -> bool:
     rel = "/".join(parts)
     return any(rel.startswith(prefix) for prefix in DENY_PREFIXES)
+
+
+def _walk_files(root: Path) -> list[Path]:
+    """Regular files under root, never leaving the tree.
+
+    pathlib rglob("*/**") on Python <= 3.12 follows symlinked directories,
+    which can pull files from outside the workspace into the bundle. Use
+    os.walk(followlinks=False) with explicit pruning; symlinked files are
+    skipped as well because copying them would follow the link outside.
+    """
+    out: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = sorted(d for d in dirnames
+                             if not (Path(dirpath) / d).is_symlink())
+        for fn in sorted(filenames):
+            p = Path(dirpath) / fn
+            if p.is_symlink() or not p.is_file():
+                continue
+            out.append(p)
+    return out
 
 
 def collect_files(root: Path) -> tuple[list[Path], str]:
@@ -105,9 +155,7 @@ def collect_files(root: Path) -> tuple[list[Path], str]:
                 if not _denied(p.split("/")) and not _denied_prefix(p.split("/"))]
         return [root / r for r in rels], "git"
     rels: list[str] = []
-    for p in sorted(root.rglob("*")):
-        if not p.is_file():
-            continue
+    for p in sorted(_walk_files(root)):
         rel = p.relative_to(root)
         if _denied(list(rel.parts)) or _denied_prefix(list(rel.parts)):
             continue
@@ -115,28 +163,67 @@ def collect_files(root: Path) -> tuple[list[Path], str]:
     return [root / r for r in rels], "walk"
 
 
+def _iter_text_lines(path: Path):
+    """Yield decoded text lines with bounded memory.
+
+    Binary files (NUL in the first 8 KiB) yield nothing. Unlike the old
+    size-based skip, every text file is scanned, streamed in chunks so a
+    multi-megabyte file cannot blow up memory. A single line longer than
+    the window is still scanned in window-sized pieces.
+    """
+    window = 1 << 20
+    max_line_buf = 8 << 20
+    with open(path, "rb") as fh:
+        if b"\x00" in fh.read(8192):
+            return
+        fh.seek(0)
+        buf = b""
+        for chunk in iter(lambda: fh.read(window), b""):
+            buf += chunk
+            lines = buf.split(b"\n")
+            buf = lines.pop()
+            for ln in lines:
+                yield ln.decode("utf-8", errors="replace").rstrip("\r")
+            while len(buf) > max_line_buf:  # pathological: no newline for ages
+                piece, buf = buf[:max_line_buf], buf[max_line_buf:]
+                yield piece.decode("utf-8", errors="replace")
+        if buf:
+            yield buf.decode("utf-8", errors="replace").rstrip("\r")
+
+
 def scan_secrets(files: list[Path], root: Path) -> list[str]:
     """Return 'file:line looks like a <label>' strings. Never the value."""
     problems: list[str] = []
     for f in files:
         try:
-            if f.stat().st_size > 1_000_000:
-                continue
-            with open(f, "rb") as fh:
-                head = fh.read(8192)
-            if b"\x00" in head:
-                continue  # binary
-            text = f.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            rel = f.relative_to(root).as_posix()
+        except ValueError:
+            rel = str(f)
+        try:
+            size = f.stat().st_size
+        except OSError as e:
+            print(f"WARN cannot stat {rel}: {e}; file not secret-scanned")
             continue
-        for i, line in enumerate(text.splitlines(), 1):
-            if CANARY_MARKER in line:
-                continue
-            for rx, label in SECRET_PATTERNS:
-                if rx.search(line):
-                    rel = f.relative_to(root).as_posix()
-                    problems.append(f"{rel}:{i} looks like a {label}")
-                    break
+        if size > LARGE_FILE_WARN_BYTES:
+            print(f"WARN scanning large file {rel} ({size} bytes)")
+        try:
+            for i, line in enumerate(_iter_text_lines(f), 1):
+                marked = CANARY_MARKER in line
+                for rx, label in SECRET_PATTERNS:
+                    hit = None
+                    for m in rx.finditer(line):
+                        # on a marked line only the known canary samples
+                        # themselves are exempt; anything else still hits
+                        if marked and m.group(0) in CANARY_SAMPLES:
+                            continue
+                        hit = m
+                        break
+                    if hit:
+                        problems.append(f"{rel}:{i} looks like a {label}")
+                        break
+        except OSError as e:
+            print(f"WARN cannot read {rel}: {e}; file not secret-scanned")
+            continue
     return problems
 
 
@@ -326,6 +413,7 @@ def read_manifest_and_verify(bundle_path: Path) -> dict:
     errors: list[str] = []
     with zipfile.ZipFile(bundle_path) as zf:
         names = zf.namelist()
+        file_names = {n for n in names if not n.endswith("/")}
         for n in names:
             if any(p in DENY_NAMES for p in n.replace("\\", "/").split("/")):
                 raise BundleError(f"Bundle contains forbidden local-state file: {n}")
@@ -334,18 +422,32 @@ def read_manifest_and_verify(bundle_path: Path) -> dict:
         if "SHA256SUMS" not in names:
             raise BundleError("Bundle is missing SHA256SUMS")
         manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+        # Bidirectional identity: the zip must contain exactly the entries
+        # SHA256SUMS lists (plus SHA256SUMS itself). An extra unlisted file
+        # would otherwise skip the checksum stage entirely and be unpacked
+        # by _extract_bundle; a missing entry means the sums do not cover
+        # the bundle they claim to.
+        listed: set[str] = set()
         for line in zf.read("SHA256SUMS").decode("utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue
-            digest, _, name = line.partition("  ")
+            digest, sep, name = line.partition("  ")
             name = name.strip()
-            if name not in names:
+            if not sep or len(digest) != 64 or not name:
+                errors.append(f"malformed SHA256SUMS line: {line[:72]}")
+                continue
+            listed.add(name)
+            if name not in file_names:
                 errors.append(f"SHA256SUMS lists missing entry: {name}")
                 continue
             actual = hashlib.sha256(zf.read(name)).hexdigest()
             if actual != digest:
                 errors.append(f"checksum mismatch: {name}")
+        unlisted = sorted(file_names - listed - {"SHA256SUMS"})
+        if unlisted:
+            errors.append("SHA256SUMS does not cover bundle file(s): "
+                          + ", ".join(unlisted))
     if errors:
         raise BundleError(
             "Bundle verification failed (corrupted or tampered):\n  "
@@ -356,7 +458,10 @@ def read_manifest_and_verify(bundle_path: Path) -> dict:
 
 # ------------------------------------------------------------------- import
 
-def _extract_bundle(root: Path, bundle_path: Path) -> None:
+def _extract_bundle(root: Path, bundle_path: Path) -> list[Path]:
+    """Extract the bundle into root. Returns the file paths it wrote, so a
+    failed import can remove files that did not exist before."""
+    written: list[Path] = []
     with zipfile.ZipFile(bundle_path) as zf:
         for info in zf.infolist():
             if info.is_dir():
@@ -373,6 +478,13 @@ def _extract_bundle(root: Path, bundle_path: Path) -> None:
             top = parts[0]
             rest = parts[1:]
             if top == "workspace" and rest:
+                # defense in depth: refuse writes into excluded directories
+                # (.git/...) even if the sums list was re-signed by an
+                # attacker -- export can never produce them legitimately
+                if _denied(rest):
+                    raise BundleError(
+                        "Bundle writes into an excluded directory: "
+                        + info.filename)
                 dest = root.joinpath(*rest)
             elif top == "wheels" and rest:
                 dest = (root / "packages" / "wheels").joinpath(*rest)
@@ -385,9 +497,33 @@ def _extract_bundle(root: Path, bundle_path: Path) -> None:
                 continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(info))
+            written.append(dest)
+    return written
 
 
-def _restore_zip(root: Path, backup_zip: Path) -> None:
+def _remove_created(root: Path, created: list[Path], keep: set[str]) -> None:
+    """Delete files an import wrote that the pre-import backup does not
+    contain (i.e. files the import created)."""
+    for p in created:
+        try:
+            rel = p.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if rel in keep:
+            continue
+        if p.is_symlink():
+            print(f"WARN import wrote through existing symlink {rel}; "
+                  "not removing it during rollback")
+            continue
+        try:
+            p.unlink()
+        except OSError as e:
+            print(f"WARN could not remove file created by import: {rel} ({e})")
+
+
+def _restore_zip(root: Path, backup_zip: Path,
+                 created: list[Path] | None = None) -> None:
+    keep: set[str] = set()
     with zipfile.ZipFile(backup_zip) as zf:
         for info in zf.infolist():
             if info.is_dir():
@@ -395,9 +531,27 @@ def _restore_zip(root: Path, backup_zip: Path) -> None:
             parts = safe_zip_parts(info.filename)
             if parts is None:
                 raise BundleError(f"Unsafe path in backup: {info.filename}")
+            keep.add("/".join(parts))
             dest = root.joinpath(*parts)
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(info))
+    if created:
+        # restoring the backup alone would leave files the import had
+        # created; remove them so "rolled back" is actually true
+        _remove_created(root, created, keep)
+
+
+def _undo_created_links(actions: list) -> None:
+    """Best-effort removal of links the re-link step created, so a rollback
+    does not leave them pointing at restored/removed state. Foreign content
+    replaced during re-link stays under backups/."""
+    for a in actions:
+        if a.action in ("none", "skip"):
+            continue
+        try:
+            remove_managed(a.target)
+        except (LinkError, OSError):
+            continue
 
 
 def _backup_current(root: Path, current_version: str) -> Path | None:
@@ -450,35 +604,49 @@ def import_bundle(root: Path, bundle_path: str | Path, environment: str | None =
     if backup:
         print(f"Backup   {backup.relative_to(root).as_posix()}")
 
+    created: list[Path] = []
+    actions: list = []
     try:
-        _extract_bundle(root, bundle_path)
+        created = _extract_bundle(root, bundle_path)
         if environment:
             env_mod.set_environment(root, environment)
         mdir = root / "manifests"
         mdir.mkdir(parents=True, exist_ok=True)
         (mdir / f"{bundle_path.stem}.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+        # re-link + doctor: a failure here is an import failure too, so it
+        # stays inside the same rollback protection ("Rolled back" must be
+        # true; doctor's non-zero exit is reported, not rolled back)
+        try:
+            env_now, _ = env_mod.resolve(root)
+        except env_mod.EnvError:
+            env_now = None
+        cfg = build_effective(root, env_now)
+        lm = LinkManager.from_config(root, cfg)
+        actions = lm.plan(cfg.enabled_skills)
+        for line in lm.apply(actions):
+            print(line)
+
+        print()
+        print("Running doctor ...")
+        rc = print_checks(run_checks(root))
     except Exception as e:
+        print(f"FAIL import failed: {e}")
+        print("Rolling back ...")
+        if actions:
+            _undo_created_links(actions)
+            if any(a.action == "backup-replace" for a in actions):
+                print("  foreign directories replaced during re-link are "
+                      "kept under backups/")
         if backup:
-            print(f"FAIL import failed: {e}")
-            print("Rolling back ...")
-            _restore_zip(root, backup)
+            _restore_zip(root, backup, created)
             print(f"Rolled back to previous state ({backup.name})")
+        elif created:
+            _remove_created(root, created, keep=set())
+            print("Removed files written by the failed import")
         raise BundleError(f"import failed: {e}") from e
 
-    # re-link + doctor
-    try:
-        env_now, _ = env_mod.resolve(root)
-    except env_mod.EnvError:
-        env_now = None
-    cfg = build_effective(root, env_now)
-    lm = LinkManager.from_config(root, cfg)
-    for line in lm.apply(lm.plan(cfg.enabled_skills)):
-        print(line)
-
-    print()
-    print("Running doctor ...")
-    rc = print_checks(run_checks(root))
     if rc != 0 and backup:
         print()
         print("Doctor reported failures. The import itself completed and verified;")

@@ -1,10 +1,14 @@
 """Offline bundle: exclusion rules, verification, roundtrip import, safety."""
+import hashlib
+import subprocess
 import zipfile
+from pathlib import Path
 
 import pytest
 
-from agentctl.bundle import (BundleError, export_bundle, import_bundle,
-                             read_manifest_and_verify)
+from agentctl import gitops
+from agentctl.bundle import (BundleError, collect_files, export_bundle,
+                             import_bundle, read_manifest_and_verify)
 
 
 def test_export_excludes_local_state_and_env(ws, tmp_path):
@@ -137,6 +141,7 @@ def test_export_excludes_reverse_engineering_project(ws, tmp_path):
 
 def test_import_refuses_bundle_entries_under_excluded_prefix(ws, tmp_path):
     # 排除前缀对 import 同样生效：包内出现该前缀条目时拒绝而非覆盖本地副本
+    # （重新签名 SHA256SUMS 越过恒等校验，专测前缀防御本身）
     out = export_bundle(ws, output=tmp_path / "b.zip")
     src = tmp_path / "rezip"
     with zipfile.ZipFile(out) as zf:
@@ -144,11 +149,183 @@ def test_import_refuses_bundle_entries_under_excluded_prefix(ws, tmp_path):
     rogue = src / "workspace" / "projects" / "cloudmusic-r" / "x.js"
     rogue.parent.mkdir(parents=True)
     rogue.write_text("payload\n", encoding="utf-8")
-    out2 = tmp_path / "b2.zip"
-    with zipfile.ZipFile(out2, "w") as zf:
-        for p in sorted(src.rglob("*")):
-            if p.is_file():
-                zf.write(p, p.relative_to(src).as_posix())
+    _rewrite_sums(src)
+    out2 = _rezip(src, tmp_path / "b2.zip")
 
     with pytest.raises(BundleError, match="projects/cloudmusic-r"):
         import_bundle(ws, out2)
+
+
+# --------------------------------------------------------------- helpers
+
+def _extract_to(bundle: Path, src: Path) -> None:
+    with zipfile.ZipFile(bundle) as zf:
+        zf.extractall(src)
+
+
+def _rezip(src: Path, dest: Path) -> Path:
+    with zipfile.ZipFile(dest, "w") as zf:
+        for p in sorted(src.rglob("*")):
+            if p.is_file():
+                zf.write(p, p.relative_to(src).as_posix())
+    return dest
+
+
+def _rewrite_sums(src: Path) -> None:
+    """Recompute SHA256SUMS over the whole extracted tree, simulating an
+    attacker who re-signs the manifest wholesale."""
+    lines = []
+    for p in sorted(src.rglob("*")):
+        if p.is_file() and p.name != "SHA256SUMS":
+            rel = p.relative_to(src).as_posix()
+            lines.append(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {rel}\n")
+    (src / "SHA256SUMS").write_text("".join(lines), encoding="utf-8")
+
+
+# ------------------------------------------------------------- deny lists
+
+def test_export_walk_mode_excludes_personal_and_heavy_paths(ws, tmp_path):
+    # walk 模式（内网机无 git 时的常态）同样必须挡住个人数据、团队状态与
+    # 大型归档：user-data / work / .agent-teams / .uv-cache / projects/xerj / *.7z
+    (ws / "user-data" / "copyq").mkdir(parents=True)
+    (ws / "user-data" / "copyq" / "copyq_tab_a.dat").write_bytes(b"\x00clipboard")
+    (ws / "work").mkdir()
+    (ws / "work" / "scratch.md").write_text("internal notes\n", encoding="utf-8")
+    (ws / ".agent-teams").mkdir()
+    (ws / ".agent-teams" / "team.json").write_text("{}", encoding="utf-8")
+    (ws / ".uv-cache").mkdir()
+    (ws / ".uv-cache" / "cached").write_text("x", encoding="utf-8")
+    (ws / "projects" / "xerj" / "upstream.c").parent.mkdir(parents=True)
+    (ws / "projects" / "xerj" / "upstream.c").write_text("int main(){}\n", encoding="utf-8")
+    (ws / "skills" / "serial-debug.7z").write_bytes(b"7z\xbc\xaf\x27\x1c")
+
+    out = export_bundle(ws, output=tmp_path / "b.zip")
+
+    with zipfile.ZipFile(out) as zf:
+        names = zf.namelist()
+    for prefix in ("workspace/user-data/", "workspace/work/",
+                   "workspace/.agent-teams/", "workspace/.uv-cache/",
+                   "workspace/projects/"):
+        assert not any(n.startswith(prefix) for n in names), prefix
+    assert not any(n.endswith(".7z") for n in names)
+    assert any(n == "workspace/skills/alpha/SKILL.md" for n in names)
+
+
+@pytest.mark.skipif(not gitops.available(), reason="git not on PATH")
+def test_collect_git_mode_applies_deny_lists(ws, tmp_path):
+    # git 模式（含被强制 add 的 gitignored 路径）与 walk 模式共用同一套
+    # DENY 清单，两边都必须生效
+    (ws / "user-data" / "copyq").mkdir(parents=True)
+    (ws / "user-data" / "copyq" / "copyq.ini").write_text("[Options]\n", encoding="utf-8")
+    (ws / "work").mkdir()
+    (ws / "work" / "notes.md").write_text("internal notes\n", encoding="utf-8")
+    (ws / "skills" / "alpha" / "tool.7z").write_bytes(b"PK\x03\x04")
+    (ws / "projects" / "xerj" / "upstream.c").parent.mkdir(parents=True)
+    (ws / "projects" / "xerj" / "upstream.c").write_text("int main(){}\n", encoding="utf-8")
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(ws), "-c", "user.email=test@example.com",
+             "-c", "user.name=test", "-c", "commit.gpgsign=false", *args],
+            check=True, capture_output=True)
+
+    git("init")
+    git("add", "-A")
+    git("commit", "-m", "init", "--quiet")
+
+    files, mode = collect_files(ws)
+
+    assert mode == "git"
+    rels = [f.relative_to(ws).as_posix() for f in files]
+    assert not any(r.startswith("user-data/") for r in rels)
+    assert not any(r.startswith("work/") for r in rels)
+    assert not any(r.endswith(".7z") for r in rels)
+    assert not any(r.startswith("projects/xerj/") for r in rels)
+    assert "configs/common.yaml" in rels
+
+
+def test_walk_collection_skips_symlinked_directories(ws, tmp_path):
+    # Python <= 3.12 的 rglob 会跟随目录 symlink 走出工作区；收集必须
+    # 停在树内，不得把外部文件收进离线包
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("outside\n", encoding="utf-8")
+    link = ws / "skills" / "alpha" / "escape"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not available on this platform")
+
+    files, mode = collect_files(ws)
+
+    assert mode == "walk"
+    assert all("escape" not in f.relative_to(ws).as_posix() for f in files)
+    out = export_bundle(ws, output=tmp_path / "b.zip")
+    with zipfile.ZipFile(out) as zf:
+        assert not any("escape" in n for n in zf.namelist())
+
+
+# -------------------------------------------------- sums identity (import)
+
+def test_import_rejects_unlisted_bundle_entries(ws, tmp_path):
+    # 夹带注入：包内多出未列入 SHA256SUMS 的文件必须被拒，否则可绕过校验
+    out = export_bundle(ws, output=tmp_path / "b.zip")
+    src = tmp_path / "rezip"
+    _extract_to(out, src)
+    rogue = src / "workspace" / "skills" / "alpha" / "rogue.js"
+    rogue.write_text("payload\n", encoding="utf-8")
+    out2 = _rezip(src, tmp_path / "b2.zip")
+
+    with pytest.raises(BundleError, match="SHA256SUMS does not cover"):
+        read_manifest_and_verify(out2)
+
+
+def test_import_rejects_missing_sums_entries(ws, tmp_path):
+    # 反向恒等：SHA256SUMS 列出但包内缺失的条目同样必须被拒
+    out = export_bundle(ws, output=tmp_path / "b.zip")
+    src = tmp_path / "rezip"
+    _extract_to(out, src)
+    (src / "workspace" / "VERSION").unlink()
+    out2 = _rezip(src, tmp_path / "b2.zip")
+
+    with pytest.raises(BundleError, match="lists missing entry"):
+        read_manifest_and_verify(out2)
+
+
+def test_import_refuses_entries_in_denied_dirs(ws, tmp_path):
+    # 防御纵深：即使 sums 被整体重签（恒等校验通过），import 也不得写入
+    # 排除目录（如 .git/）
+    out = export_bundle(ws, output=tmp_path / "b.zip")
+    src = tmp_path / "rezip"
+    _extract_to(out, src)
+    rogue = src / "workspace" / ".git" / "config"
+    rogue.parent.mkdir(parents=True)
+    rogue.write_text("[core]\n", encoding="utf-8")
+    _rewrite_sums(src)
+    out2 = _rezip(src, tmp_path / "b2.zip")
+
+    manifest = read_manifest_and_verify(out2)  # sums 恒等校验此时通过
+    assert manifest["version"] == "0.1.0"
+    assert not (ws / ".git").exists()
+    with pytest.raises(BundleError, match=r"\.git"):
+        import_bundle(ws, out2)
+    assert not (ws / ".git").exists()
+
+
+# ------------------------------------------------------------- secret scan
+
+def test_secret_scan_covers_large_files(ws, tmp_path):
+    # >1MB 的文件不再被静默跳过：其中出现疑似密钥同样拦截导出
+    payload = "x" * (1024 * 1024 + 64) + "\nmy key: sk-abcdefghijklmnopqrstuvwx\n"  # agentctl-canary
+    (ws / "skills" / "alpha" / "big.txt").write_text(payload, encoding="utf-8")
+    with pytest.raises(BundleError, match="big.txt"):
+        export_bundle(ws, output=tmp_path / "b.zip")
+
+
+def test_canary_marker_does_not_exempt_other_secrets(ws, tmp_path):
+    # canary 标记只豁免已知假样本自身；真实密钥不能靠在行尾补标记绕过
+    key = "sk-" + "RealSecretNotExempt0123456789"
+    (ws / "skills" / "alpha" / "leak.md").write_text(
+        f"token: {key}  # agentctl-canary\n", encoding="utf-8")
+    with pytest.raises(BundleError, match="leak.md"):
+        export_bundle(ws, output=tmp_path / "b.zip")

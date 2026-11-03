@@ -30,3 +30,16 @@ def test_manifest_fields_and_sums_coverage(ws, tmp_path):
     for line in sums:
         digest, sep, name = line.partition("  ")
         assert sep == "  " and len(digest) == 64 and name
+
+
+def test_sums_identity_covers_every_bundle_file(ws, tmp_path):
+    # 双向恒等：zip 内文件集合 == SHA256SUMS 条目集合 ∪ {SHA256SUMS}；
+    # 未列出与缺失条目都在 import 校验时被拒（防夹带注入）
+    out = export_bundle(ws, output=tmp_path / "b.zip")
+    with zipfile.ZipFile(out) as zf:
+        file_entries = {n for n in zf.namelist() if not n.endswith("/")}
+        listed = set()
+        for line in zf.read("SHA256SUMS").decode("utf-8").splitlines():
+            if line.strip():
+                listed.add(line.partition("  ")[2])
+    assert file_entries == listed | {"SHA256SUMS"}
