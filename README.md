@@ -56,6 +56,7 @@ agent-workspace/
 ├── scripts/           # agentctl.cmd / agentctl.sh 包装  [Git: 是]
 ├── tools/             # CLI/MCP 配置模板                 [Git: 是]
 ├── projects/          # 独立工程工作区（各带 .gitignore） [Git: 是]
+├── rules/             # 项目规则镜像（跨机分发，源仓库为准） [Git: 是]
 ├── progress/          # 项目进度与对话归档索引           [Git: 是]
 ├── skill-audit/       # 技能审计报告与修复日志           [Git: 是]
 ├── .agent-teams/      # AgentTeams 团队运行记录          [Git: 是]

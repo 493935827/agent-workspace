@@ -5,3 +5,4 @@
 - 目录跳转/找路径用 zoxide（已在用户 PATH，工作区目录已种子入库）：agent 的 pwsh 会话不带 profile、没有 `z` 函数，用 `zoxide query <词>` 拿路径再 cd；交互终端可用 `z <词>`。常用新目录顺手 `zoxide add <路径>`。
 - 用户主要使用 C 和 Python，具有嵌入式软件背景；解释陌生技术时使用浅显语言。
 - `firmware-mentor` 仅在用户当前消息明确写出 `$firmware-mentor` 或附上该技能链接时加载。固件、嵌入式、C、Python、芯片及职业成长等主题本身不构成调用授权。
+- `rules/` 保存跨机分发的项目规则镜像（当前仅 NoteReplica）：唯一事实源在源仓库，源变更后重拷镜像并 `fc /b` 校验再提交本仓库；部署到目标机时复制该镜像到项目根目录 `AGENTS.md`。
