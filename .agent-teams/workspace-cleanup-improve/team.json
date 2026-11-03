@@ -1,0 +1,331 @@
+{
+  "name": "workspace-cleanup-improve",
+  "id": "workspace-cleanup-improve",
+  "description": "落地全面 review（work/review-20261026-agent-workspace.md）：阶段一工作区/仓库卫生清理；阶段二站在用户角度修复 blocker/high 与关键 medium——find_root 优先级、conftest 测试隔离、bundle 排除清单与 import 恒等校验、update 重链旧配置、CLI --env 一致性、machine/gitops 安全加固，并补最小回归测试；最后整合全量验证、同步 README/AGENTS/progress、按 Conventional Commits 分组本地提交（不 push）。修复范围不含 54 条 low（报告留档待排期）。",
+  "captainSessionId": "session-d148e1f5-9466-431d-9065-d708c298ea5e",
+  "createdAt": 1793612779348,
+  "phase": "running",
+  "members": [
+    {
+      "id": "c23e4640-c1f3-40ff-aa67-34664589527a",
+      "name": "cleaner",
+      "role": "workspace engineer",
+      "provider": "innostar",
+      "model": "glm-5.3-flash",
+      "joinedAt": 1793612779348,
+      "status": "idle"
+    },
+    {
+      "id": "290bc2fe-8d42-4768-a407-3bc7d748ed8f",
+      "name": "fix-core",
+      "role": "engineer",
+      "provider": "innostar",
+      "model": "glm-5.3-flash",
+      "joinedAt": 1793612779348,
+      "status": "idle"
+    },
+    {
+      "id": "06ef1872-aa88-472e-91ba-8fd654a02ad9",
+      "name": "fix-bundle",
+      "role": "engineer",
+      "provider": "innostar",
+      "model": "glm-5.3-flash",
+      "joinedAt": 1793612779348,
+      "status": "working"
+    },
+    {
+      "id": "9f285826-a12e-4f38-ba7b-7be2d2d7a793",
+      "name": "fix-cli",
+      "role": "engineer",
+      "provider": "innostar",
+      "model": "glm-5.3-flash",
+      "joinedAt": 1793612779348,
+      "status": "idle"
+    },
+    {
+      "id": "",
+      "name": "integrator",
+      "role": "integration engineer",
+      "provider": "innostar",
+      "model": "glm-5.3-flash",
+      "joinedAt": 1793612779348,
+      "status": "idle"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "profileSeedId": "t-clean",
+      "subject": "工作区与仓库卫生清理（.gitignore 补缺/缓存残留/状态恢复）",
+      "description": "工作区与仓库卫生清理（只清理，不改 agentctl/tests 源码，不做任何 git add/commit/push——提交统一由 integrator 完成）。工作目录 D:\\App\\agent-workspace（Windows）。参考报告 work/review-20261026-agent-workspace.md §5/§6。\n\n任务清单：\n1. 删除根目录残留的 pytest-cache-files-* 临时目录（生成物，删前确认未被 git 跟踪）\n2. .gitignore 补缺（逐项先用 git check-ignore -v 与 git status 验证现状再改）：新增 .agent-teams/、pytest-cache-files-*/、skills/serial-debug.7z（166MB 未跟踪文件保留原地仅忽略，是否删除留给用户）；tools/mcp-registry.json——若未被跟踪则加入忽略，若已跟踪则不动并在报告说明\n3. configs/personal.yaml 历史污染核实：git show HEAD:configs/personal.yaml 查是否仍含 resources.npm.example 相关键（测试夹具污染）。若有：不要改文件（integrator 统一提交清理），报告中给出确切键路径；若已干净：注明无需处理\n4. .agentctl/ignore.yaml 被测试重置为空：在 backups/ 与 .agentctl/ 下找历史备份，找到则恢复；找不到则保持现状并注明「内容不可恢复，需用户重配」\n5. 恢复真实发现基线（放最后一步，避免被并行测试再污染）：用仓库 venv 运行一次真实发现快照命令覆盖被夹具污染的 .agentctl/state/current.json——先用 .venv\\Scripts\\python.exe -m agentctl --help 确认子命令名（如 snapshot/discovery snapshot），只运行该只读采集命令，不运行任何会改 configs/ 或链接的命令\n\n约束：不修改 agentctl/、tests/ 下任何文件；不执行 git 写命令；删除仅限 pytest-cache-files-* 生成物。输出：每步做了什么、验证证据、遗留项。",
+      "status": "completed",
+      "assignee": "cleaner",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1793612779348,
+      "updatedAt": 1793613409063,
+      "attemptId": "bf435e86-e9ce-441a-87a1-370945712876",
+      "reassigning": false,
+      "output": "t1 完成。①删除 2 个空的 pytest-cache-files-* 目录（删前确认未被跟踪）。②.gitignore +4 规则并逐项验证（.agent-teams/、pytest-cache-files-*/、skills/serial-debug.7z、tools/mcp-registry.json——后者磁盘不存在且未跟踪，按指令加入忽略；仓库跟踪的是 example 模板）。③personal.yaml 核实：HEAD 与全历史均无 resources.npm.example，工作树=HEAD，无需处理。④ignore.yaml：全盘+归档+progress 检索无任何备份，内容不可恢复需用户重配，文件保持 ignored: [] 未动。⑤真实基线已恢复：首次 snapshot 因 pnpm provider error 被 storage.py 拒绝保存（设计行为），定位为 ERR_PNPM_GLOBAL_BIN_DIR_NOT_IN_PATH 机器 PATH 问题后，以进程级 PATH 修正复跑同一只读命令成功（saved=true），current.json 现为 4 成功+2 unavailable 的真实发现，夹具数据零残留。本人改动仅 .gitignore（+6 行），未触碰 agentctl/tests（其 M 状态为并行队友产物），未执行任何 git 写命令。遗留：serial-debug.7z 删除待用户决策；ignore.yaml 需用户重配；skill-audit/ 未跟踪目录不在本任务清单内需 integrator 决定；pnpm 机器 PATH 缺失是本机环境事实（建议用户跑 pnpm setup 或把 pnpm bin 目录加入 PATH）。",
+      "changedPaths": [
+        ".gitignore"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "根目录 pytest-cache-files-* 临时目录已删除（删前确认未被 git 跟踪）",
+          "status": "passed",
+          "evidence": "删除前 git ls-files 空 + git status 无该目录（空目录 git 不显示）；Get-ChildItem 确认两目录均为空。删除 pytest-cache-files-2zxgjfqp 与 pytest-cache-files-uondjxun，删除后剩余计数=0，且未被并行任务再生成（复查=0）"
+        },
+        {
+          "criterion": ".gitignore 补缺 4 项并验证生效（.agent-teams/、pytest-cache-files-*/、skills/serial-debug.7z、tools/mcp-registry.json）",
+          "status": "passed",
+          "evidence": "改前逐一核验：.agent-teams/ 未跟踪未忽略（check-ignore 文件级探测 exit 1；status 显示 ??）、serial-debug.7z 未跟踪（159MB≈166MB，?? 显示）、mcp-registry.json 磁盘不存在且未跟踪（仓库只有 example 模板被跟踪）、pytest-cache 模式缺失。改后 git check-ignore -v 四项全部命中新行（6/7/15/18 行），git status 不再显示 .agent-teams/ 与 serial-debug.7z"
+        },
+        {
+          "criterion": "configs/personal.yaml 历史污染核实",
+          "status": "passed",
+          "evidence": "git show HEAD:configs/personal.yaml 无任何 resources 键；git log --all -S 'npm.example' 零提交；git grep npm.example 03edd33 零命中；工作树与 HEAD diff=0。结论：已干净，无需处理（review 报告所称'已提交进 git'的早期污染在现存唯一提交 03edd33 中不存在，可能已被 amend）"
+        },
+        {
+          "criterion": ".agentctl/ignore.yaml 备份查找与恢复",
+          "status": "passed",
+          "evidence": "查找范围：.agentctl/backups/（3 个 personal-*.yaml 均为 personal.yaml 配置备份，无 ignore 内容）、根 backups/（空）、全盘 ignore* 文件清单、progress/ 与 work/ 全文检索、.agent-teams 归档（review 团队 t5 记录确认仅记录'被重置为空'）。结论：无任何 ignore.yaml 历史内容备份，内容不可恢复，需用户重配；文件保持现状 ignored: [] 未改动"
+        },
+        {
+          "criterion": "真实发现基线已恢复（真实 snapshot 覆盖被夹具污染的 current.json）",
+          "status": "passed",
+          "evidence": "污染实证：恢复前 current.json 含 scope 'a'*64 + npm example 1.0.0。.venv 运行 agentctl snapshot --json：首次 exit 1（pnpm provider 报 error：pnpm root --global 因 ERR_PNPM_GLOBAL_BIN_DIR_NOT_IN_PATH 退出 1；storage.py:119 任一 provider error 即拒绝保存，为设计行为），未保存。复现定位后以进程级 PATH 前缀 C:\\Users\\E0465\\AppData\\Local\\pnpm\\bin 重跑同一只读命令（无文件/配置修改）：exit 0，saved=true。恢复后 current.json：uv/npm/pnpm/vscode 四 provider success（真实哈希 scope），winget/pipx unavailable，资源为真实清单（claude-code 2.1.296、corepack 0.34.6、npm 11.12.1、rea-agents 6.7.0、skills 1.7.2、cli-anything-hub 0.4.1、hexeditor 1.11.1），夹具数据零残留，最终复查 CLEAN"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "git status --porcelain && git ls-files -- pytest-cache-files-*",
+          "status": "passed",
+          "evidence": "删前确认：缓存目录未被跟踪（ls-files 空；status 不显示系空目录所致）"
+        },
+        {
+          "command": "Remove-Item -Recurse -Force pytest-cache-files-2zxgjfqp, pytest-cache-files-uondjxun",
+          "status": "passed",
+          "evidence": "两空目录删除成功；复查剩余=0"
+        },
+        {
+          "command": "git check-ignore -v --no-index .agent-teams/team.json skills/serial-debug.7z tools/mcp-registry.json pytest-cache-files-abc123/",
+          "status": "passed",
+          "evidence": "改后四项分别命中 .gitignore 6/18/7/15 行"
+        },
+        {
+          "command": "git show HEAD:configs/personal.yaml && git log --all -S npm.example -- configs/personal.yaml && git diff HEAD -- configs/personal.yaml",
+          "status": "passed",
+          "evidence": "HEAD 无 resources 键、pickaxe 零提交、工作树 diff=0"
+        },
+        {
+          "command": ".venv\\Scripts\\python.exe -m agentctl snapshot --json（首次）",
+          "status": "failed",
+          "evidence": "exit 1，saved=false：pnpm provider error（root --global → ERR_PNPM_GLOBAL_BIN_DIR_NOT_IN_PATH，exit 1）；基线未覆盖（设计行为 storage.py:119-120）"
+        },
+        {
+          "command": "PATH=C:\\Users\\E0465\\AppData\\Local\\pnpm\\bin;$env:Path + .venv\\Scripts\\python.exe -m agentctl snapshot --json（复跑）",
+          "status": "passed",
+          "evidence": "exit 0，saved=true；current.json 覆盖为真实基线；仅进程级环境变量，未改任何文件/配置/链接"
+        },
+        {
+          "command": "git diff --stat && git diff HEAD --name-only -- agentctl/ tests/",
+          "status": "passed",
+          "evidence": "本人改动仅 .gitignore(+6)；agentctl/tests 的 M 条目均为并行队友阶段二修复产物，本人未触碰"
+        }
+      ],
+      "supplementalEvidence": [
+        {
+          "at": 1793613418450,
+          "by": "cleaner",
+          "attempt": 1,
+          "attemptId": "bf435e86-e9ce-441a-87a1-370945712876",
+          "note": "补充证据（append-only）：1) check-ignore 带尾斜杠目录查询在本机 git 2.55.0.windows.3 会输出空 pattern 假命中（此前误报为 .gitignore:26 空行命中）；已用无尾斜杠查询 + 文件级探测 + git status 三重复核确认 .agent-teams/ 改前确实未忽略——与归档 reviewer-sec 记录的同版本 quirk 一致，不影响任何结论。2) snapshot 首跑失败根因已留证：pnpm 12.4.2 本身可用（pnpm.exe 直接调用 exit 0），失败点是 provider scope 查询 `pnpm root --global` 的机器级 PATH 校验（ERR_PNPM_GLOBAL_BIN_DIR_NOT_IN_PATH）；agentctl 源码零改动，仅快照进程级 PATH 修正。integrator 提交时注意：.gitignore 新增第 17-18 行为「Large local archives」段注释 + serial-debug.7z 规则。"
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "profileSeedId": "t-fix-core",
+      "subject": "修复核心链路：find_root 优先级、conftest 隔离、merge 显式化、.env 引号解析",
+      "description": "修复核心数据链路缺陷（用户视角：配置是三环境根基，静默丢配置=静默事故）。工作目录 D:\\App\\agent-workspace。报告 work/review-20261026-agent-workspace.md（重点 §2 R1、§3）。\n\n1. agentctl/workspace.py find_root 优先级（blocker 根因）：改为 显式 --root > AGENT_WORKSPACE_ROOT > cwd 向上查找。这是契约变更：README/help 声称 --root 是显式覆盖，实现却让环境变量压过它（正是测试污染事故放大器）。同步 docstring\n2. tests/conftest.py 隔离：加 autouse fixture monkeypatch.delenv(\"AGENT_WORKSPACE_ROOT\"/\"AGENTCTL_ENV\")，预期消除 4 项 test_discovery 失败与污染源\n3. agentctl/config.py merge 显式化：override=None 不再清空 base 子树（视为未设置）；dict/list 与标量类型冲突抛清晰 ConfigError（含键路径）；标量误配列表键（如 skills: alpha）明确报错。向后兼容硬要求：现有合法 configs/*.yaml 合并结果不得改变\n4. agentctl/secrets.py .env 解析（secrets.py:25）：逐端 .strip 引号改为仅剥离成对外层引号，保住含撇号/引号的真实值；BOM 处理；行为变化写进 docstring\n5. 为 1/3/4 加回归测试（tests/test_env_detection.py、test_config_merge.py、test_secrets.py；conftest.py 归你）\n\n约束：只改 agentctl/workspace.py、config.py、secrets.py、tests/conftest.py、tests/test_env_detection.py、test_config_merge.py、test_secrets.py；不 commit；测试只跑相关文件（pytest tests/test_env_detection.py tests/test_config_merge.py tests/test_secrets.py -q），不跑全量 tests/；跑测试前后各 git status --porcelain 一次，跟踪文件被改立即 git restore 并报告；不运行任何会改真实工作区状态的 CLI 命令。输出：改动文件清单、修复说明、测试结果。",
+      "status": "completed",
+      "assignee": "fix-core",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1793612779348,
+      "updatedAt": 1793613473684,
+      "attemptId": "9a68f28a-0fda-487b-a11e-00d21bc2518e",
+      "reassigning": false,
+      "output": "t2 完成。修复 4 项核心链路缺陷并补回归测试，全部验证通过：\n\n1. agentctl/workspace.py find_root 优先级改为 显式 --root(start) > AGENT_WORKSPACE_ROOT > cwd 向上查找；显式 start 找不到工作区时不再回退环境变量（报错并说明 --root 是显式覆盖）；docstring 同步契约与行为变更原因。\n2. tests/conftest.py 新增 autouse fixture _isolate_workspace_env：monkeypatch.delenv AGENT_WORKSPACE_ROOT/AGENTCTL_ENV（raising=False），消除宿主环境（本机 User 级已设 AGENT_WORKSPACE_ROOT=D:\\App\\agent-workspace，已实测确认污染向量真实存在）对测试的影响。4 项 test_discovery 失败的最终确认按约束留给 captain 全量验证（本次只跑了指定 3 个测试文件）。\n3. agentctl/config.py merge 显式化：override=None 视为未设置返回 base（不再清空子树，含标量，如 internet: null 不再变 False）；dict/list 与标量同键冲突抛 ConfigError（含点分键路径）；build_effective 增加 LIST_SCHEMA 校验（skills/exclude_skills/links.targets/secrets.required/secrets.optional），标量误配列表键（skills: alpha）在任何层都明确报错。向后兼容硬要求达标：configs/{common,personal,company,intranet}.yaml + local.yaml 全部 profile 合并结果修改前后逐字节一致（快照比对 identical: True）。边界说明：dict↔list（双结构化）冲突按任务范围保持旧语义（override 胜出，不报错）。\n4. agentctl/secrets.py parse_env_file：引号改为仅剥离一对匹配的外层引号（PASS=\"it's\" → it's，旧实现得 it）；BOM 用 utf-8-sig 容忍；行为变化写入 docstring。\n5. 回归测试：test_env_detection.py +6（find_root 优先级 6 例），test_config_merge.py +8（null 保留/类型冲突/键路径/LIST_SCHEMA/嵌套 union），test_secrets.py +2（撇号与内层引号保留、BOM）。\n\n测试结果：pytest tests/test_env_detection.py tests/test_config_merge.py tests/test_secrets.py -q → 34 passed。\n防污染核查：跑测试前后各 git status --porcelain 一次 + configs/*.yaml SHA256 前后比对 → configs 零变化，无测试引入的跟踪文件改动（.agentctl/state 未被触碰，仍是 review 记录的既有污染，等待用户重跑 snapshot 决策）。\n\n需 captain 跟进的交接项：agentctl/cli.py:50-51 --root help 文本仍是旧优先级表述（\"AGENT_WORKSPACE_ROOT 已设置时优先使用该变量\"），与新契约相反；cli.py 不在我的改动范围（且该文件有其他成员在改），请在 CLI 链路任务或整合阶段同步该 help 与 README 的 --root 语义。",
+      "changedPaths": [
+        "agentctl/workspace.py",
+        "agentctl/config.py",
+        "agentctl/secrets.py",
+        "tests/conftest.py",
+        "tests/test_env_detection.py",
+        "tests/test_config_merge.py",
+        "tests/test_secrets.py"
+      ],
+      "commandsRun": [
+        {
+          "command": "pytest tests/test_env_detection.py tests/test_config_merge.py tests/test_secrets.py -q (.venv)",
+          "status": "passed",
+          "evidence": "34 passed in 3.86s"
+        },
+        {
+          "command": "python t2-merge-snapshot.py (before vs after config.py edit, %TEMP%)",
+          "status": "passed",
+          "evidence": "all-profile merge output identical: True (common/personal/company/intranet + local.yaml layer)"
+        },
+        {
+          "command": "git status --porcelain (pre/post test) + SHA256 of configs/*.yaml",
+          "status": "passed",
+          "evidence": "configs hashes unchanged pre/post; no test-induced tracked-file modification; personal.yaml clean"
+        },
+        {
+          "command": "pwsh $env:AGENT_WORKSPACE_ROOT / User-scope check",
+          "status": "passed",
+          "evidence": "AGENT_WORKSPACE_ROOT=D:\\App\\agent-workspace persisted at User scope — pollution vector confirmed real"
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "profileSeedId": "t-fix-bundle",
+      "subject": "修复 bundle/appconfig/links：DENY 清单、import 恒等校验、回滚与 sums 覆盖",
+      "description": "修复 bundle/appconfig/links 缺陷（用户视角：内网机 export 把剪贴板等个人数据打进离线包=铁律级事故；离线包被调包而校验全绿=供应链风险）。工作目录 D:\\App\\agent-workspace。报告 work/review-20261026-agent-workspace.md（§2 R2、§3）。\n\n1. agentctl/bundle.py DENY 清单补全：DENY_DIRS 加 user-data/、work/、.agent-teams/、.uv-cache/、projects/xerj/；DENY_SUFFIXES 加 .7z；walk 与 git 两种收集模式都要生效，并与 .gitignore 全表核对\n2. agentctl/bundle.py import 校验改双向恒等：set(zip namelist) == set(SHA256SUMS 条目) ∪ {SHA256SUMS}，未列与缺失条目都拒绝（修夹带注入）；import 阶段同时检查 DENY_DIRS（防御纵深，拒绝写 .git/ 等）\n3. agentctl/bundle.py import 回滚完整性：_restore_zip 对导入新建文件改删除；link/doctor 阶段纳入 try/回滚保护；scan_secrets 取消 >1MB 静默跳过（改警告+继续）；# agentctl-canary 只豁免 canary 自身行\n4. walk/hash 收集跳过目录 symlink（Python ≤3.12 rglob 跟随 symlink 越界）\n5. agentctl/appconfig.py zip_capture 的 SHA256SUMS.txt 改按应用分文件，不再互相覆盖\n6. agentctl/links.py create_link copy 分支：目标是无 .agentctl-copy 标记的外来目录时先备份到 backups/ 再操作；skill 名校验拒绝路径分隔符与 ..\n7. 为 1/2/5 加/改回归测试（tests/test_bundle.py、test_appconfig.py、test_manifest.py、test_links.py）\n\n约束：只改 agentctl/bundle.py、appconfig.py、links.py 与上述测试文件；不 commit；只跑相关测试文件，不跑全量 tests/；跑测试前后 git status --porcelain 核对，跟踪文件被改立即 git restore 并报告；不运行改状态的 CLI。输出：改动文件清单、修复说明、测试结果。",
+      "status": "in_progress",
+      "assignee": "fix-bundle",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1793612779348,
+      "updatedAt": 1793613029401,
+      "attemptId": "abdb1302-d82e-40a5-8de4-8dafd603c9e5",
+      "reassigning": false
+    },
+    {
+      "id": "t4",
+      "profileSeedId": "t-fix-cli",
+      "subject": "修复 CLI 链路：update 重链用新配置、--env 一致性、machine/gitops 加固",
+      "description": "修复 CLI 面与初始化链路缺陷（用户视角：update 是三环境最高频命令，重链缺陷直接卡住新增 skill 启用；doctor 是排障入口，--env 不一致让人误判环境）。工作目录 D:\\App\\agent-workspace。报告 work/review-20261026-agent-workspace.md（§2 R3、§3）。\n\n1. 【最重要】update 重链旧配置修复：cli.py:258 在 pull 前构建 cfg 传给 run_update，pull 后仍用 stale cfg；改为 pull 成功后在 run_update 内重建 effective config（参照 bundle.py import_bundle 的正确模式）。补最小回归测试 tests/test_update.py（tmp 工作区+monkeypatch，验证 pull 后用新配置重链）\n2. doctor 尊重全局 --env（实测 AGENTCTL_ENV 生效而 --env 不生效）：统一环境判定入口\n3. status 非法 --env 报 ERROR 退出码 2（与 link/update 一致），不再静默 \"(not set)\" exit 0\n4. 依赖健康检查补 ruamel.yaml（discovery/storage.py 实际使用）；修正 doctor.py:99 \"single runtime dependency\" 注释\n5. agentctl/machine.py machine_setup.env_vars：覆盖已有不同值的用户变量前先备份原值（machine-state 快照文件），日志脱敏值内容；重复运行幂等\n6. agentctl/gitops.py：subprocess 加 timeout 与 stdin=DEVNULL；GitError 消息脱敏 URL 内嵌凭据（userinfo 打码）\n7. 为 2/3/5/6 补最小测试（tests/test_machine.py、test_cli_wrapper.py 及新文件）\n\n约束：只改 agentctl/cli.py、update.py、bootstrap.py、doctor.py、machine.py、gitops.py 及上述/新增测试文件；不 commit；只跑相关测试文件（含新 test_update.py），不跑全量 tests/（conftest 修复合入前 test_discovery 4 项存量失败会干扰全量结果）；跑测试前后 git status --porcelain 核对，跟踪文件被改立即 git restore 并报告；不运行改状态的 CLI（update/link 实跑一律禁止，dry-run 除外）。输出：改动文件清单、修复说明、测试结果。",
+      "status": "completed",
+      "assignee": "fix-cli",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1793612779348,
+      "updatedAt": 1793613545775,
+      "attemptId": "8247bd57-1492-49cd-818f-b834f9a4d9c2",
+      "reassigning": false,
+      "changedPaths": [
+        "agentctl/cli.py",
+        "agentctl/update.py",
+        "agentctl/doctor.py",
+        "agentctl/machine.py",
+        "agentctl/gitops.py",
+        "tests/test_machine.py",
+        "tests/test_update.py",
+        "tests/test_cli_env.py",
+        "tests/test_gitops.py"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "1. update 重链旧配置修复：pull 成功后在 run_update 内重建 effective config（参照 bundle.import_bundle 模式），补 tests/test_update.py 回归测试",
+          "status": "passed",
+          "evidence": "agentctl/update.py 在 pull 后调用 build_effective(root, env) 再重链；tests/test_update.py::test_pull_then_relink_uses_new_config 模拟 pull 带来新启用 skill（delta），断言 delta 被自动链接（含 .agentctl-copy 标记）。红绿验证：临时回退修复后该测试 FAILED（linked delta 缺失），恢复修复后 PASSED，证明测试确实覆盖原缺陷。另含 dry-run 不 pull、离线拒绝联网、pull/fetch 失败即停 4 项测试。"
+        },
+        {
+          "criterion": "2. doctor 尊重全局 --env（统一环境判定入口）",
+          "status": "passed",
+          "evidence": "cli.py 新增 _resolve_env_tolerant 作为 status/doctor 统一入口（显式 --env 非法即抛错，未配置时容忍）；cmd_doctor 解析 env 后传入 run_checks(root, env=, env_source=)；doctor 环境检查显示 'personal (from --env)'。tests/test_cli_env.py 5 项 doctor 测试：--env 生效、--env 压过 AGENTCTL_ENV/local.yaml、无 --env 仍走 local.yaml、非法 --env 报错退出 2、完全未配置时仍运行并报 environment FAIL（exit 1）。"
+        },
+        {
+          "criterion": "3. status 非法 --env 报 ERROR 退出码 2，不再静默 '(not set)' exit 0",
+          "status": "passed",
+          "evidence": "cmd_status 改用 _resolve_env_tolerant：显式 --env 非法时 EnvError 上抛 → main 打印 ERROR 并退出 2。tests/test_cli_env.py::test_status_invalid_env_flag_errors_with_exit_2 断言 exit 2 + stderr ERROR + 输出无 '(not set)'；同时保留未配置任何环境时 '(not set - run: bootstrap)' 的友好提示（exit 0）行为并有测试锁定。"
+        },
+        {
+          "criterion": "4. 依赖健康检查补 ruamel.yaml；修正 doctor.py 'single runtime dependency' 注释",
+          "status": "passed",
+          "evidence": "doctor.py 依赖检查改为循环覆盖 pyyaml + ruamel.yaml（与 pyproject dependencies 同步），注释改为 'keep in sync with pyproject [project].dependencies (discovery/storage.py also uses ruamel.yaml)'；update.py 的 deps 检查同步覆盖两依赖。test_doctor_checks_both_runtime_dependencies 断言两项检查均存在且 PASS（venv 实装 pyyaml 6.0.3 / ruamel 0.18.17）。"
+        },
+        {
+          "criterion": "5. machine env_vars：覆盖前备份原值到 machine-state 快照文件、日志脱敏值内容、重复运行幂等",
+          "status": "passed",
+          "evidence": "machine.py 新增 _machine_state_path/_backup_env_var：覆盖已有不同值前先写 .agentctl/machine-state.json（首次原值保留、记录 reg_type+saved_at），备份失败则拒绝覆盖；所有 env_vars 日志不再含新旧值明文。tests/test_machine.py：替换原 'was: D:\\old' 明文断言为备份+脱敏断言，新增 首原值保留幂等、备份失败阻止覆盖、dry-run 零写入 3 项测试，全部通过。"
+        },
+        {
+          "criterion": "6. gitops subprocess 加 timeout 与 stdin=DEVNULL；GitError 消息脱敏 URL 内嵌凭据",
+          "status": "passed",
+          "evidence": "gitops.py：_git 统一 stdin=subprocess.DEVNULL + timeout=DEFAULT_TIMEOUT(120s)，TimeoutExpired 转 GitError 'timed out'；新增 redact() 将 scheme://userinfo@ 打码为 ***@，GitError 消息构造时应用。tests/test_gitops.py 8 项：redact 参数化 7 例（https/ssh/错误消息/无凭据/scp-like/邮箱不变）+ stdin/timeout 断言 + 超时转 GitError + 端到端凭据不泄漏（token 不出现在异常消息）。"
+        },
+        {
+          "criterion": "7. 为 2/3/5/6 补最小测试（test_machine.py 更新、test_cli_env.py/test_gitops.py 新文件）",
+          "status": "passed",
+          "evidence": "tests/test_cli_env.py（11 项，自含 AGENT_WORKSPACE_ROOT/AGENTCTL_ENV 隔离 fixture，防宿主环境变量干扰）、tests/test_gitops.py（8 项）、tests/test_machine.py（更新 1 项 + 新增 4 项）。四个测试文件合计 42 passed in 3.55s（uv run pytest）。"
+        },
+        {
+          "criterion": "8.（captain 追加）cli.py --root help 文案同步新优先级契约（显式 --root > AGENT_WORKSPACE_ROOT > cwd）",
+          "status": "passed",
+          "evidence": "cli.py --root help 改为 '工作区查找起点（显式覆盖，优先于 AGENT_WORKSPACE_ROOT）：从该路径向上查找；未提供时先看 AGENT_WORKSPACE_ROOT，再从当前目录向上查找'，与队友合入的 find_root 新契约一致；README 同步按要求留给 integrator。"
+        },
+        {
+          "criterion": "约束遵守：只跑相关测试文件、未跑全量、未 commit、测试前后 git status 核对无测试污染、未实跑改状态 CLI",
+          "status": "passed",
+          "evidence": "仅运行 tests/{test_update,test_cli_env,test_gitops,test_machine}.py；测试前后 porcelain 对比：本任务测试未改动任何跟踪文件（期间出现的 bundle.py/conftest.py/workspace.py/config.py/secrets.py/.gitignore 改动经内容核实为队友并发任务工作，非测试污染）；update/link 实跑从未执行（git 全部 monkeypatch）；未执行任何 git commit。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "git status --porcelain (pre-test baseline snapshot)",
+          "status": "passed",
+          "evidence": "记录测试前工作区状态用于污染对比"
+        },
+        {
+          "command": "uv run pytest tests/test_update.py tests/test_cli_env.py tests/test_gitops.py tests/test_machine.py -q",
+          "status": "passed",
+          "evidence": "42 passed in 3.55s"
+        },
+        {
+          "command": "uv run pytest tests/test_update.py::test_pull_then_relink_uses_new_config -q （临时回退 update.py 修复后）",
+          "status": "failed",
+          "evidence": "1 failed — 预期失败，证明回归测试能捕获 stale-cfg 缺陷；随后已恢复修复"
+        },
+        {
+          "command": "uv run pytest tests/test_update.py tests/test_cli_env.py tests/test_gitops.py tests/test_machine.py -q （恢复修复后复跑）",
+          "status": "passed",
+          "evidence": "42 passed in 3.55s"
+        },
+        {
+          "command": "git status --porcelain (post-test) + Compare-Object vs pre-test snapshot",
+          "status": "passed",
+          "evidence": "唯一新增差异 agentctl/bundle.py 经 git diff 内容核实为队友并发提交的 R2 修复（DENY 清单/双向校验/符号链接），非本任务测试污染"
+        },
+        {
+          "command": "uv run python -c \"import yaml, ruamel.yaml; ...\" (依赖确认)",
+          "status": "passed",
+          "evidence": "pyyaml 6.0.3 / ruamel 0.18.17 均可导入"
+        }
+      ]
+    },
+    {
+      "id": "t5",
+      "profileSeedId": "t-integrate",
+      "subject": "整合验证：全量测试+冒烟、README/progress 同步、分组提交",
+      "description": "整合验证、文档同步与分组提交。工作目录 D:\\App\\agent-workspace。依赖四个前置任务全部完成。报告 work/review-20261026-agent-workspace.md。\n\n1. git status --porcelain 盘点改动；核对与各修复任务声明一致，预期外文件先报告不要提交\n2. 全量验证：.venv\\Scripts\\python.exe -m pytest tests/ -q——预期 122/122 全绿（conftest 隔离修复后 test_discovery 4 项应通过）；有失败则定位归属，仅测试断言层面可小修，实现缺陷报告不动实现\n3. 冒烟（只读）：agentctl --help（16 子命令）、doctor、link --dry-run；结束后 git status 应无跟踪文件改动\n4. 文档同步（用户视角，文档是第一入口）：README.md——find_root 优先级新契约（--root > AGENT_WORKSPACE_ROOT > cwd）、merge None/类型冲突新行为、import 恒等校验、FAQ FAIL 范围、README:249 diff 措辞、目录树补 progress/、架构图补 VERSION/npm、.env 口径改为 secret 通道而非配置层；AGENTS.md 受影响约定同步\n5. pyproject.toml 加 [tool.pytest.ini_options]（testpaths=[\"tests\"]）\n6. progress/progress.md：原位更新受影响概况行（agentctl 待修两项→已修复、测试 118→122 全绿、新增「2026-10-26 全面 review + 清理修复」要点），保持每主题一行不扩写\n7. 按 Conventional Commits 分组本地提交（不 push）：建议 fix(config)/fix(workspace)/fix(bundle)/fix(cli)/fix(machine,gitops)/test/chore(.gitignore+pytest 配置)/docs 各一组；每 commit 前跑该组相关测试；提交信息遵循仓库规范（Conventional Commits）\n8. 输出：验证结果、提交清单（hash+主题）、遗留项（push 待用户、未修的 low findings 清单）\n\n约束：除上述明确文件外不改源码；绝不 push。",
+      "status": "pending",
+      "assignee": "integrator",
+      "dependencies": [
+        "t1",
+        "t2",
+        "t3",
+        "t4"
+      ],
+      "attempt": 0,
+      "createdAt": 1793612779348,
+      "updatedAt": 1793612779348
+    }
+  ],
+  "taskSeq": 5,
+  "approvedAt": 1793613019612
+}
