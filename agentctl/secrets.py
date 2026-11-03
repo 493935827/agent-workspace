@@ -13,16 +13,33 @@ def env_file_path(root: Path) -> Path:
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
+    """Parse a dotenv file into {key: value}.
+
+    Rules:
+      - ``KEY = value``: whitespace around key and value is stripped;
+      - blank lines, ``# comments`` and lines without ``=`` are skipped;
+      - a UTF-8 BOM at the start of the file is tolerated;
+      - quoting: a value wrapped in one matching pair of double or single
+        quotes loses exactly that outer pair; any other quotes/apostrophes
+        inside the value are kept verbatim.
+
+    Behaviour change (2026-10): the previous implementation applied
+    ``.strip('"').strip("'")`` to both ends, which corrupted real values
+    containing apostrophes or quotes (e.g. ``PASS="it's"`` became ``it``
+    instead of ``it's``). Only one matched outer pair is removed now.
+    """
     out: dict[str, str] = {}
     if not path.is_file():
         return out
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
-        value = value.strip().strip('"').strip("'")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
         if key:
             out[key] = value
     return out
