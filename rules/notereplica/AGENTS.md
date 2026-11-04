@@ -176,6 +176,7 @@ warmup[各轨]（与 requirements/architecture 同期并行预热，简报供架
 - ❌ 契约内联全文进任务文本 / 评审从团队状态逐字捞契约（必须读 `docs/batches/<批次id>/contract.md` 文件）
 - ❌ 冷启动排队：成员在需求/架构阶段闲置、契约落地后才开始读代码（组队即派 warmup 并行预热，简报喂给架构师）
 - ❌ 评审等全局门：review 依赖全量验证完成才开工（应绑定对应轨道即完即评，评审段与尾部实现并行）
+- ❌ 质量门降级：验证/评审任务不带 kind=verification/review + objective/acceptance（缺 kind 即无质量门契约，verdict 不参与合流判定，「评审绑定单轨」对它失效；实测 agent-console-completion 3 处、agent-teams-ui-conflict-fix 1 处）
 
 ## 多智能体团队并发预算（AgentTeams）
 
