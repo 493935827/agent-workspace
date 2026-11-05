@@ -6,3 +6,4 @@
 - 用户主要使用 C 和 Python，具有嵌入式软件背景；解释陌生技术时使用浅显语言。
 - `firmware-mentor` 仅在用户当前消息明确写出 `$firmware-mentor` 或附上该技能链接时加载。固件、嵌入式、C、Python、芯片及职业成长等主题本身不构成调用授权。
 - `rules/` 保存跨机分发的项目规则镜像（当前仅 NoteReplica）：唯一事实源在源仓库，源变更后重拷镜像并 `fc /b` 校验再提交本仓库；部署到目标机时复制该镜像到项目根目录 `AGENTS.md`。
+- `rules/` 亦承载组队规则引用（本工作区组队前必读）：编队规则唯一事实源在 `D:\Innostar-ic\Agent\work_flow_find\AGENTS.md` 的「标准组织架构与分工」「上下文同步纪律」「多智能体团队并发预算」三节（并行预热 warmup、契约落盘 `docs/batches/<批次id>/contract.md`、评审绑定单轨、质量任务必须显式 `kind=verification/review`）；建队接线实例化 `D:\Innostar-ic\Agent\work_flow_find\scripts\agent-team-v2-template.json`，跑完用 `node D:\Innostar-ic\Agent\work_flow_find\scripts\agent-team-metrics.mjs <团队目录>\team.json` 出性能报告。
