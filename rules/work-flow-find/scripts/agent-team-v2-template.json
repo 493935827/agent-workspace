@@ -1,0 +1,225 @@
+{
+ "_readme": [
+  "AgentTeams v2 编排模板（对应 AGENTS.md 标准组织架构与分工 + 上下文同步纪律）。",
+  "用法：下一批次复制本文件，替换 lane* 占位与真实任务名，经 create({plan:{members,tasks}}) 一次成型。",
+  "硬规则：每轨一个 warmup(kind=work,deps=[])随建队即派；契约骨架 deps=[requirements, warmup×各轨]；验证/评审必须 kind+objective/acceptance；review deps=[本轨 impl, 本轨 verify] 禁绑全局门；integration deps=[全部 review]；实现轨 ≥3 并行、单任务 ≤1 分区 ≤5 文件；评审员独立于实现者；已知 flaky 在 warm-qa 并行预跑 stab-*。"
+ ],
+ "members": [
+  {
+   "name": "po"
+  },
+  {
+   "name": "architect"
+  },
+  {
+   "name": "lane1-eng"
+  },
+  {
+   "name": "lane2-eng"
+  },
+  {
+   "name": "lane3-eng"
+  },
+  {
+   "name": "qa-1"
+  },
+  {
+   "name": "qa-2"
+  },
+  {
+   "name": "reviewer-a"
+  },
+  {
+   "name": "reviewer-b"
+  },
+  {
+   "name": "reviewer-c"
+  },
+  {
+   "name": "integrator"
+  }
+ ],
+ "tasks": [
+  {
+   "id": "warm-lane1",
+   "subject": "warmup：lane1 轨内代码勘察与简报（≤1K）",
+   "kind": "work",
+   "assignee": "lane1-eng",
+   "dependencies": []
+  },
+  {
+   "id": "warm-lane2",
+   "subject": "warmup：lane2 轨内代码勘察与简报（≤1K）",
+   "kind": "work",
+   "assignee": "lane2-eng",
+   "dependencies": []
+  },
+  {
+   "id": "warm-lane3",
+   "subject": "warmup：lane3 轨内代码勘察与简报（≤1K）",
+   "kind": "work",
+   "assignee": "lane3-eng",
+   "dependencies": []
+  },
+  {
+   "id": "warm-qa",
+   "subject": "warmup：测试轨勘察+已知 flaky 清单+stab-* 稳定性预跑（--repeat-each>=3）",
+   "kind": "work",
+   "assignee": "qa-1",
+   "dependencies": []
+  },
+  {
+   "id": "t-req",
+   "subject": "requirements：需求/遗留证据裁决与本批规格",
+   "kind": "requirements",
+   "assignee": "po",
+   "dependencies": []
+  },
+  {
+   "id": "t-skel",
+   "subject": "架构骨架：入口语义/命令名/归属表/与 PO 裁决逐条映射（≤1K，队长核对后展开）",
+   "kind": "work",
+   "assignee": "architect",
+   "dependencies": [
+    "t-req",
+    "warm-lane1",
+    "warm-lane2",
+    "warm-lane3",
+    "warm-qa"
+   ]
+  },
+  {
+   "id": "t-contract",
+   "subject": "契约全文落盘 docs/batches/<批次id>/contract.md（任务文本只引用 §节号+行号锚点）",
+   "kind": "work",
+   "assignee": "architect",
+   "dependencies": [
+    "t-skel"
+   ]
+  },
+  {
+   "id": "t-impl-lane1",
+   "subject": "impl lane1（≤5 文件，引用 contract §锚点）",
+   "kind": "implementation",
+   "assignee": "lane1-eng",
+   "dependencies": [
+    "t-contract"
+   ]
+  },
+  {
+   "id": "t-impl-lane2",
+   "subject": "impl lane2（≤5 文件）",
+   "kind": "implementation",
+   "assignee": "lane2-eng",
+   "dependencies": [
+    "t-contract"
+   ]
+  },
+  {
+   "id": "t-impl-lane3",
+   "subject": "impl lane3（≤5 文件）",
+   "kind": "implementation",
+   "assignee": "lane3-eng",
+   "dependencies": [
+    "t-contract"
+   ]
+  },
+  {
+   "id": "t-impl-tests",
+   "subject": "测试补缺/新用例落盘（用例先行部分已在 warm-qa 产出）",
+   "kind": "implementation",
+   "assignee": "qa-2",
+   "dependencies": [
+    "t-contract"
+   ]
+  },
+  {
+   "id": "t-ver-lane1",
+   "subject": "verify lane1（tsc+相关 vitest/playwright 单文件）",
+   "kind": "verification",
+   "assignee": "qa-1",
+   "dependencies": [
+    "t-impl-lane1"
+   ]
+  },
+  {
+   "id": "t-ver-lane2",
+   "subject": "verify lane2",
+   "kind": "verification",
+   "assignee": "qa-2",
+   "dependencies": [
+    "t-impl-lane2"
+   ]
+  },
+  {
+   "id": "t-ver-lane3",
+   "subject": "verify lane3",
+   "kind": "verification",
+   "assignee": "qa-1",
+   "dependencies": [
+    "t-impl-lane3"
+   ]
+  },
+  {
+   "id": "t-ver-tests",
+   "subject": "verify tests（全量两腿回归）",
+   "kind": "verification",
+   "assignee": "qa-2",
+   "dependencies": [
+    "t-impl-tests"
+   ]
+  },
+  {
+   "id": "t-rev-lane1",
+   "subject": "review lane1（对照 contract.md §基线独立取证）",
+   "kind": "review",
+   "assignee": "reviewer-a",
+   "dependencies": [
+    "t-impl-lane1",
+    "t-ver-lane1"
+   ]
+  },
+  {
+   "id": "t-rev-lane2",
+   "subject": "review lane2",
+   "kind": "review",
+   "assignee": "reviewer-b",
+   "dependencies": [
+    "t-impl-lane2",
+    "t-ver-lane2"
+   ]
+  },
+  {
+   "id": "t-rev-lane3",
+   "subject": "review lane3",
+   "kind": "review",
+   "assignee": "reviewer-c",
+   "dependencies": [
+    "t-impl-lane3",
+    "t-ver-lane3"
+   ]
+  },
+  {
+   "id": "t-rev-tests",
+   "subject": "review tests（断言强度/无弱化）",
+   "kind": "review",
+   "assignee": "reviewer-b",
+   "dependencies": [
+    "t-impl-tests",
+    "t-ver-tests"
+   ]
+  },
+  {
+   "id": "t-integ",
+   "subject": "集成收口：三腿门禁+集成报告（changedPaths→inScope 对账、评审结论汇总）",
+   "kind": "integration",
+   "assignee": "integrator",
+   "dependencies": [
+    "t-rev-lane1",
+    "t-rev-lane2",
+    "t-rev-lane3",
+    "t-rev-tests"
+   ]
+  }
+ ]
+}
