@@ -140,6 +140,8 @@ agentctl import <zip> --dry-run      # 校验+预览，不落盘
 
 然后做一次离线 bootstrap 装依赖（见第 5 节内网部分）。
 
+整机重建（DSH 本体 + AgentTeams 插件 + Console 后端 + UI 补丁四件套）的清单、SHA-256 与装机步骤见 [delivery/README.md](delivery/README.md)。
+
 ## 9. Secret 管理
 
 - `.env.example` 进 Git（只有变量名），`.env` 永远 gitignore。
