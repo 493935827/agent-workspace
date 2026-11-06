@@ -1,12 +1,12 @@
 # 项目进度
 
-最后更新：2026-11-05 14:00（Asia/Hong_Kong）
+最后更新：2026-11-06 11:41（Asia/Hong_Kong）
 
 ## 当前概况
 
 - 当前目标：维护可跨个人、公司、内网环境重建的 Agent/Skill 与开发软件；安全子集经私有 GitHub Release 分发。
 - 近期里程碑：progress/交接约定改版为渐进式披露三层；agentctl 第一版全流程验收；serial-debug skill 换 Qt 工作台并同步上游；export 扫描误报修复；skills CLI 与 ui-ux-pro-max 入库；handoff/git-delivery 提交信息规范成文（Conventional Commits + Handoff trailer）。2026-11-02 skill-audit 全流程完成（48→40 技能，8 个按用户决策下架）；2026-10-26 workspace 全面 review 的 agentctl 修复已合入并全量测试转绿；.agent-teams 团队运行记录入库。serial-gui 本地开发克隆已删，以 skill 内置副本与上游 493935827/serial-gui 为准（细节见归档行）。
-- Skills：源 43（skill-audit 后下架 8 个：code-review/git-helper/python-helper/document-helper/jira-helper/internal-doc-search/define-bounded-goal/reg-to-ll；新收录 cli-anything/cli-hub-meta-skill/hallmark）；common 启用 38，personal/company/intranet 预期 38/37/37，本机实测 38/38 全 PASS（REA `reverse-engineer-anything` v42 已入库、本机已链为托管 junction；REA 本体与分析引擎另装）。
+- Skills：源 44（skill-audit 后下架 8 个：code-review/git-helper/python-helper/document-helper/jira-helper/internal-doc-search/define-bounded-goal/reg-to-ll；新收录 cli-anything/cli-hub-meta-skill/hallmark；2026-11-06 收编 code-verify）；common 启用 42（同日补启用上述 4 个并重链为托管 junction），personal/company/intranet 预期 44/42/42，本机实测 42/42 全 PASS（REA `reverse-engineer-anything` v42 已入库；REA 本体与分析引擎另装；~/.dsh/skills 另有 7 个 Codex 系技能仅本机未收编）。
 - serial-gui：标题栏「拖不动」修复完成（2026-10-22 `998c023`：QMenuBar 空白死区接管 + 标签行 DragStrip + 最大化先还原；`drag_repro7` 真鼠标注入决定性回归 + 118 测试绿）；实机人工验收待做，归档在 [skill 侧 handoff](../skills/serial-debug/progress/handoff-20261022-111757-titlebar-drag-fix.md)。
 - agentctl：中文 help、全局入口与 16 个子命令已验证（README；appconfig：应用配置 capture/deploy，CopyQ 已纳管，设置模板 tools/copyq；machine_setup：bootstrap 自动配置机器级环境，doctor machine:* 查漂移，本机部署验证）；2026-11-03 review 修复合入：find_root 显式优先级、conftest 环境隔离、merge 显式化（null=未设置保留 base，`resources.*.version` 显式 null 为解锁例外）、update 重链 pull 后重建配置、bundle DENY 清单补全与 import 双向恒等校验、doctor/status --env 统一、machine env 覆盖先备份、gitops 超时与凭据脱敏；全量测试 180 passed/1 skipped，configs/`.agentctl` 零污染；export 包范围整体排除 `projects/cloudmusic-r`（import 同拒该前缀）。
 - 软件交付：公司 51/52、内网 44/45 项介质就绪；安全子集拆三 ZIP 逐包 SHA-256 校验，PixPin 安装包同发布于私有 Release；CopyQ 配置+剪贴板历史已发布于私有 user-data-2026-10-21 Release（agent-software-packages，SHA-256 校验通过，可用 agentctl appconfig deploy 恢复）；本机实装 CopyQ 3.12.0（交付包内为 16.0.0 安装器，升级未做），条目 20 行截断已配置生效。

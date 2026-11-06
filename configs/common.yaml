@@ -7,6 +7,9 @@ skills:
   - agent-reach
   - andes-aice-bringup
   - ask-matt
+  - cli-anything
+  - cli-hub-meta-skill
+  - code-verify
   - codebase-design
   - diagnosing-bugs
   - domain-modeling
@@ -16,6 +19,7 @@ skills:
   - grill-me
   - grill-with-docs
   - grilling
+  - hallmark
   - handoff
   - implement
   - improve-codebase-architecture
