@@ -97,6 +97,13 @@ app_configs:
       - "*.new.bak"
       - "*.log"
 
+  chrome-bookmarks:
+    description: Chrome 书签（Default profile，个人数据；内网机改发 scripts/chrome_bookmarks_filter.py 生成的仅含 Innostar 文件夹变体包）
+    target: "%LOCALAPPDATA%/Google/Chrome/User Data/Default"
+    process: chrome.exe
+    include:
+      - Bookmarks
+
 # resources: 期望清单，供 agentctl scan/diff 与基线对比
 # skills = vercel-labs/skills CLI；本机 npm ls -g 不输出 resolved 来源字段，
 # adopt 按设计拒绝猜测来源，此处为已知 registry 来源的手动登记

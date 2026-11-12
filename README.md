@@ -309,6 +309,24 @@ copyq --from <下载的 zip>` → 重启 CopyQ。只想恢复设置不要历史�
 `tools/copyq/` 模板（copyq.ini + copyq-commands.ini，不含剪贴板记录）。
 capture 前建议退出 CopyQ：运行中抓取可能拿到尚未落盘的旧状态。
 
+**Chrome 书签**同样走 appconfig（`chrome-bookmarks`，抓 `Default` profile 的
+`Bookmarks` 单文件，个人数据只走私有渠道）。内网机不同步个人书签：先在本机
+抓全量，再用 `scripts/chrome_bookmarks_filter.py` 从中生成仅含 `Innostar`
+文件夹的内网变体包：
+
+```bash
+agentctl appconfig capture chrome-bookmarks --zip     # 全量 -> user-data/chrome-bookmarks(.zip)
+python scripts/chrome_bookmarks_filter.py \
+    --src user-data/chrome-bookmarks/Bookmarks --folder Innostar \
+    --out user-data/chrome-bookmarks-innostar --zip    # 内网变体：仅 Innostar 文件夹
+agentctl appconfig deploy chrome-bookmarks --from chrome-bookmarks.zip        # 公司/个人机
+agentctl appconfig deploy chrome-bookmarks --from chrome-bookmarks-innostar.zip  # 内网机
+```
+
+变体脚本只保留指定文件夹的完整子树，清空其余书签栏条目与 `other`/`synced`
+根，并去掉失效的 `checksum`/`sync_metadata`（Chrome 会自行重算）；部署同样
+先备份原文件。内网机部署后书签栏只有 `Innostar` 一个文件夹。
+
 ## 安全设计要点
 
 - 不绕过公司安全机制、不做隐蔽传输；bundle 是明文 zip，可人工审查。
