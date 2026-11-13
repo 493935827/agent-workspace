@@ -108,6 +108,10 @@ agent-browser screenshot after-submit.png
 成功标志：绿色 toast **「TICKET <id> 提交成功」**，弹窗自动关闭回到「我发送的」列表，
 列表顶部新增一行（申请号 = toast 里的 id）。实测 TICKET 14045。
 
+**提交是异步上传**（右下角「文件上传中…」进度面板，7MB 级数秒）：
+- 点提交前先 `agent-browser is enabled @上传提交ref` 确认按钮已亮（注入后 React 启用有延迟，盲点会静默丢失整次提交——实测踩过：HTTP 全 200 但工单没建出来）；
+- toast 稍纵即逝，可靠完成信号 = network 里出现 finalize `ticket/submit` 200 + `search/send`，然后列表顶部出现新申请号；同一文件名连发两区完全可行（实测 14117 安全桌面 + 14118 开发网）。
+
 ## 7. 收尾
 
 ```powershell
