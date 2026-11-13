@@ -1,6 +1,6 @@
 ---
 name: innostar-file-send
-description: Automate the innostar-ic 文件收发 system at https://172.16.15.88 with agent-browser — log in with env-var credentials, submit 发送文件申请 (目标保护区默认开发网), download files from 我收到的 (never click 删除), and pack arbitrary resources to 7z offline archives (pack-to-dts merged: pip/npm/URL/本地目录/VSIX) then upload them to 开发网. Use when the user asks to send/transfer files via the innostar-ic system, log into 172.16.15.88, download from 我收到的, or says 打包到DTS/下到DTS/放到DTS/离线包/离线安装/打包传上去.
+description: Automate the innostar-ic 文件收发 system at https://172.16.15.88 with agent-browser — log in with env-var credentials, submit 发送文件申请 (目标保护区默认开发网), download files from 我收到的 (never click 删除), and pack arbitrary resources to 7z offline archives (pack-to-dts merged — pip/npm/URL/本地目录/VSIX) then upload them to 开发网. Use when the user asks to send/transfer files via the innostar-ic system, log into 172.16.15.88, download from 我收到的, or says 打包到DTS/下到DTS/放到DTS/离线包/离线安装/打包传上去.
 ---
 
 # Innostar 文件收发 + 打包上传自动化（agent-browser）
