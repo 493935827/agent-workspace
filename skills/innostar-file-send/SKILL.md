@@ -1,6 +1,6 @@
 ---
 name: innostar-file-send
-description: Automate the innostar-ic 文件收发 system at https://172.16.15.88 with agent-browser — log in with env-var credentials, submit 发送文件申请 (目标保护区默认开发网), download files from 我收到的 (never click 删除), and pack arbitrary resources to 7z offline archives (pack-to-dts merged — pip/npm/URL/本地目录/VSIX) then upload them to 开发网. Use when the user asks to send/transfer files via the innostar-ic system, log into 172.16.15.88, download from 我收到的, or says 打包到DTS/下到DTS/放到DTS/离线包/离线安装/打包传上去.
+description: Automate the innostar-ic 文件收发 system at https://172.16.15.88 with agent-browser — log in with env-var credentials, submit 发送文件申请 (目标保护区默认开发网), download files from 我收到的 (never click 删除), and pack arbitrary resources to 7z offline archives (pack-to-dts merged — pip/npm/URL/本地目录/VSIX) then upload them to 开发网. Use when the user asks to send/transfer files via the innostar-ic system, log into 172.16.15.88, download from 我收到的, or says 打包到DTS/下到DTS/放到DTS/离线包/离线安装/打包传上去, or says 发布aws to export the agent-workspace offline package and distribute it to both 安全桌面 and 开发网.
 ---
 
 # Innostar 文件收发 + 打包上传自动化（agent-browser）
@@ -76,6 +76,17 @@ python <skill目录>/scripts/pack/pack-vsix.py --extensions "ms-python.python" -
 ## 打包 → 上传管线（默认开发网）
 
 用户说「打包传上去 / 打包到开发网 / 下到 DTS」时：`pack-*.py` 出包 → 走上面发送流程，**目标保护区默认「开发网」**、接收用户默认当前账号；仅当用户明确点名其他保护区（如安全桌面、其他接收人）才改下拉选择。
+
+## 发布 agent-workspace（触发词「发布aws」）
+
+用户说「发布aws / 发布 agent-workspace 版本」时，**先 export、再分发**，顺序固定：
+
+1. **先 export 出包**：`agentctl export`（可选 `--with-wheels`/`--with-npm`）重打 agent-workspace 离线包，默认产物 `dist/agent-workspace-v<版本>-offline.zip`（自动排除 .env/local.yaml 机密、生成清单与 SHA-256 校验）。先看 dist/ 实际产物名与时间戳，必要时 `--dry-run` 预演。
+2. **再双区分发**：对导出的 zip 连走两遍「发送流程」，**两个区各一个 TICKET，都要报给用户**：
+   - 目标保护区=**安全桌面**：下拉默认项，`focus` → `ArrowDown` 展开 → 直接 `Enter`
+   - 目标保护区=**开发网**：展开后 `ArrowDown` 一次再 `Enter`
+   - 描述注明「agent-workspace 离线包 <版本/commit>」
+   - 包体 7 MB 级超出 inject-upload 命令行上限（~30K 字符）→ 直接走 serve-cors.py + 页面 fetch 注入分支（见发送流程第 5 步），不要先试直注入浪费时间
 
 ## 硬性坑位（实测结论）
 
