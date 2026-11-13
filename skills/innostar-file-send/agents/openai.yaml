@@ -1,0 +1,3 @@
+interface:
+  display_name: "Innostar File Send"
+  short_description: "Automate innostar-ic (172.16.15.88) file send via agent-browser"
