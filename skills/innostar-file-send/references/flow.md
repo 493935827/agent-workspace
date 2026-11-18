@@ -150,4 +150,5 @@ icon.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true, 
 | inject-upload.ps1 报 `The filename or extension is too long` | 脚本把文件 base64 塞进 eval 命令行，Windows argv 上限约 32K 字符——实测 98.4MB 文件必炸（TICKET 14045 的小文件没事） | 大文件走「本地 CORS 服务 + 页面 fetch 注入」：后台起 `python <skill目录>/scripts/serve-cors.py <文件目录> 18731`（http.server + CORS + `Access-Control-Allow-Private-Network: true`，2026-11-12 起脚本随 skill 分发；当时用的 `_serve_packages.py` 是临时件未留存），再主文档 eval：(async)→`fetch('http://127.0.0.1:18731/<file>')`→`new w.File([new w.Uint8Array(buf)], name)`→DataTransfer→`el.files=dt.files`→派发 input/change。eval 脚本本身 ~1.4KB，字节走浏览器网络栈不进命令行；inject 后快照核对列表行文件名+大小 |
 | toast「文件名xxx已存在」 | 弹窗内按文件名去重 | 换文件名，或删列表行后重注入 |
 | 「上传提交」一直灰 | 文件未进列表或有必填项没填 | snapshot 检查弹窗各字段 |
-| 提交链路全 200 但「我发送的」列表不见新行 | search/send 200 只代表请求成功，列表未必重渲染；且 `open` 同 URL 是 hash 空导航不刷新 | `agent-browser eval 'location.reload()'` 强刷页面后核对顶部新申请号（2026-11-14 TICKET 14205 实测：ticket/submit + upload-file-aj + search/send 全 200，强刷前列表仍停在 14119） |
+| 提交链路全 200 但「我发送的」列表不见新行 | search/send 200 只代表请求成功，列表未必重渲染；且 `open` 同 URL 是 hash 空导航不刷新 | `agent-browser eval 'location.reload()'` 强刷页面后核对顶部新申请号（2026-11-18 TICKET 14205 实测：ticket/submit + upload-file-aj + search/send 全 200，强刷前列表仍停在 14119） |
+| 强刷后「我发送的」仍无新行（尤其安全桌面区） | 部分区工单入列滞后数分钟，一次 reload 后的列表还不含它 | 等 1–2 分钟再强刷核对，**别重发**——2026-11-18 TICKET 14206 滞后实测，急于重试会造重复工单 |

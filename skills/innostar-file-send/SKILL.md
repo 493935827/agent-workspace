@@ -79,7 +79,7 @@ python <skill目录>/scripts/pack/pack-vsix.py --extensions "ms-python.python" -
 
 ## 发布 agent-workspace（触发词「发布aws」）
 
-用户说「发布aws / 发布 agent-workspace 版本」时，**先 export、再分发**，顺序固定：
+用户说「发布aws / 发布 agent-workspace 版本」时，**先 export、再分发**，顺序固定。**agent-workspace 离线包默认双区（安全桌面 + 开发网）各一 TICKET——用户说「传一份 / 传到 dts」也不减区，仅当明确点名只发某区才单区**（2026-11-18 用户规则）：
 
 1. **先 export 出包**：`agentctl export`（可选 `--with-wheels`/`--with-npm`）重打 agent-workspace 离线包，默认产物 `dist/agent-workspace-v<版本>-offline.zip`（自动排除 .env/local.yaml 机密、生成清单与 SHA-256 校验）。先看 dist/ 实际产物名与时间戳，必要时 `--dry-run` 预演。
 2. **再双区分发**：对导出的 zip 连走两遍「发送流程」，**两个区各一个 TICKET，都要报给用户**：
