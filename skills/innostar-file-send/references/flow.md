@@ -151,4 +151,4 @@ icon.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true, 
 | toast「文件名xxx已存在」 | 弹窗内按文件名去重 | 换文件名，或删列表行后重注入 |
 | 「上传提交」一直灰 | 文件未进列表或有必填项没填 | snapshot 检查弹窗各字段 |
 | 提交链路全 200 但「我发送的」列表不见新行 | search/send 200 只代表请求成功，列表未必重渲染；且 `open` 同 URL 是 hash 空导航不刷新 | `agent-browser eval 'location.reload()'` 强刷页面后核对顶部新申请号（2026-11-18 TICKET 14205 实测：ticket/submit + upload-file-aj + search/send 全 200，强刷前列表仍停在 14119） |
-| 强刷后「我发送的」仍无新行（尤其安全桌面区） | 部分区工单入列滞后数分钟，一次 reload 后的列表还不含它 | 等 1–2 分钟再强刷核对，**别重发**——2026-11-18 TICKET 14206 滞后实测，急于重试会造重复工单 |
+| 强刷后「我发送的」仍无新行（尤其安全桌面区） | 部分区工单入列滞后，实测 5–7 分钟（14206/14318/14319），一次 reload 后的列表还不含它 | 等几分钟再强刷或用列表搜索框按文件名查，**别重发**——急于重试会造重复工单 |
