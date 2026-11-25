@@ -34,6 +34,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File <skill目录>\scripts\send-f
 ```
 
 - 默认双区各一 TICKET；自动登录恢复、自动起/停 CORS 服务、XHR 补丁捕获 ticket/submit 响应拿工单号（全程免刷新）
+- 脚本报出的工单号**要和「我发送的」列表核对一次**（双区两单应为相邻号；响应里其它 id 字段曾致误抓，实测脚本报 14213 而列表真号 14385/14386）
 - **agent 调用姿势（重要）**：分离启动 + 日志轮询（`Start-Process -RedirectStandardOutput out.log ... -PassThru` 后轮询日志出现 `TOTAL`），**不要在工具会话里管道捕获嵌套 powershell 的输出**——孙进程（agent-browser/node）继承 stdout 句柄不释放，`| Out-String` 会永久挂死（实测两次 240s 超时无输出）；`-ArgumentList` 里带空格的参数必须显式加引号，否则碎片会串位绑进 `-Zones`
 - **改脚本前必读**：PS5.1 下 `$ErrorActionPreference='Stop'` 会被 agent-browser 的 stderr 噪声（`[agent-browser] launched browser` 等）炸掉或挂住 → 保持 EAP=Continue + 显式校验；agent-browser eval 对返回值再 JSON 编码一层（引号变 `\"`）→ 断言一律用无引号纯字符串协议（`ses=true` / `armed=true` / `modal=false up=false` / `id:14361`）
 

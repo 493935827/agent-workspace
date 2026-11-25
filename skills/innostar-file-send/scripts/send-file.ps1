@@ -87,7 +87,7 @@ function Inject-And-Arm([string]$descZone) {
     # 补丁捕获 ticket/submit 响应 + 注入文件; Promise 全程带 20s 超时护栏, eval 不可能挂住
     $js = @"
 var fr=document.querySelector('iframe');var w=fr.contentWindow;var d=w.document;
-if(!w.__igcap){w.__igcap=[];var ox=w.XMLHttpRequest.prototype.open,os=w.XMLHttpRequest.prototype.send;w.XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return ox.apply(this,arguments)};w.XMLHttpRequest.prototype.send=function(){var s=this;this.addEventListener('load',function(){try{if(s.__u&&s.__u.indexOf('ticket/submit')>=0){w.__igcap.push(String(s.responseText||'').slice(0,400));}}catch(e){}});return os.apply(this,arguments);};var of=w.fetch;w.fetch=function(){var uu=String(arguments[0]||'');var pp=of.apply(this,arguments);try{if(uu.indexOf('ticket/submit')>=0){pp.then(function(r){try{r.clone().text().then(function(t){w.__igcap.push(t.slice(0,400));},function(){});}catch(e){}});}}catch(e){}return pp;};}
+if(!w.__igcap){w.__igcap=[];var ox=w.XMLHttpRequest.prototype.open,os=w.XMLHttpRequest.prototype.send;w.XMLHttpRequest.prototype.open=function(m,u){this.__u=u;return ox.apply(this,arguments)};w.XMLHttpRequest.prototype.send=function(){var s=this;this.addEventListener('load',function(){try{if(s.__u&&s.__u.indexOf('ticket/submit')>=0){w.__igcap.push(String(s.responseText||'').slice(0,1200));}}catch(e){}});return os.apply(this,arguments);};var of=w.fetch;w.fetch=function(){var uu=String(arguments[0]||'');var pp=of.apply(this,arguments);try{if(uu.indexOf('ticket/submit')>=0){pp.then(function(r){try{r.clone().text().then(function(t){w.__igcap.push(t.slice(0,1200));},function(){});}catch(e){}});}}catch(e){}return pp;};}
 w.__igcap.length=0;
 new Promise(function(res){
   var arm=setTimeout(function(){res('INJECT-TIMEOUT');},20000);
@@ -122,7 +122,8 @@ function Wait-Done {
 function Get-Ticket {
     # 捕获的响应里引号会被多层转义, 干脆在 JS 里用 String.fromCharCode(34) 剥掉所有引号再返回
     $cap = EB "var w=document.querySelector('iframe').contentWindow;var c=(w.__igcap||[]).join('|||');'CAP='+c.split(String.fromCharCode(34)).join('')"
-    if ($cap -match 'id:\s*(1[0-9]{4})' -or $cap -match '(1[0-9]{4})') {
+    # 工单号优先匹配 ticket* 键 —— 响应里还有其它 id 字段(曾误抓 14213, 真号在列表里是相邻号)
+    if ($cap -match 'ticket[^0-9]{0,16}(1[0-9]{4})' -or $cap -match 'id[^0-9]{0,8}(1[0-9]{4})' -or $cap -match '(1[0-9]{4})') {
         return @{ id = $Matches[1]; how = 'capture'; raw = $cap }
     }
     $null = EB "location.reload();'reloading'"
