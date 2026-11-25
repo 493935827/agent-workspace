@@ -137,6 +137,76 @@ icon.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true, 
 - **文件夹行**：POST `/zxfile/api/v2.1/repos/<repo>/zip-task/` → 轮询 `query-zip-progress/?token=...` → GET `/zxfile/fs/zip/<uuid>`；落盘名为时间戳 `yyyyMMddHHmmss.zip`（**不是**文件夹名），zip 内带 `<文件夹名>/` 前缀。
 - eval 的 JS 里不要写双引号（经 PowerShell→exe 传参会被剥掉），属性匹配一律 `.find(el => el.title === '...')`。
 
+## 9. 快速路径（eval 直驱，2026-11-24 实测 TICKET 14336）
+
+**一键脚本（首选）**：`scripts/send-file.ps1 -File <路径> [-Description 描述] [-Zones 安全桌面,开发网]`
+——2026-11-25 实测小文件双区 **15.4s**（14382/14383），含登录恢复、CORS 服务生命周期、
+XHR 补丁捕获工单号（免刷新）。注意 agent 侧调用姿势：分离启动+日志轮询，勿管道捕获
+嵌套 powershell 输出（孙进程句柄继承会挂死）；脚本断言用无引号纯字符串协议（eval 返回值
+会被 agent-browser 再 JSON 编码一层，带引号的匹配必炸）。以下 S1–S4 为手动等价路径（调试用）。
+
+整页 `snapshot -i` 会 dump 整个「我发送的」列表（几十行 × 8 列 refs，几十 KB），是流程最大耗时源。
+同源 iframe 可从主文档 eval 钻入（`document.querySelector('iframe').contentDocument`），
+原生 `.click()`/事件派发对 React 全部有效 → 弹窗交互全程免 snapshot、免 ref。
+JS 一律不写双引号（见 §8 末尾坑位），PS 侧用双引号包整段；Promise 由 eval 自动 await。
+
+**S1 打开弹窗**（点按钮 + 700ms 后回读弹窗存在性）：
+
+```powershell
+agent-browser eval "var d=document.querySelector('iframe').contentDocument;var btn=[].slice.call(d.querySelectorAll('button')).find(function(b){return b.innerText.indexOf('发送文件申请')>=0});if(!btn){'NO-BUTTON'}else{btn.click();new Promise(function(res){setTimeout(function(){res('modal='+!!d.querySelector('.ant-modal'));},700);})}"
+```
+
+**S2 下拉选开发网**（mousedown/mouseup/click 展开 Ant Select → 点 option → 回读三个 select 值）：
+
+```powershell
+agent-browser eval "var d=document.querySelector('iframe').contentDocument;var fi=[].slice.call(d.querySelectorAll('.ant-modal .ant-form-item')).find(function(x){var l=x.querySelector('.ant-form-item-label label');return l&&l.innerText.indexOf('目标保护区')>=0});var sel=fi.querySelector('.ant-select');var se=sel.querySelector('.ant-select-selector');se.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));se.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));se.click();new Promise(function(res){setTimeout(function(){var hit=[].slice.call(d.querySelectorAll('.ant-select-dropdown .ant-select-item-option')).find(function(o){return o.getAttribute('title')==='开发网'});if(!hit){res('NO-OPTION');return;}hit.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));hit.click();setTimeout(function(){var vs=[].slice.call(d.querySelectorAll('.ant-modal .ant-form-item')).filter(function(x){return x.querySelector('.ant-select')}).map(function(x){return (x.querySelector('.ant-form-item-label label')||{innerText:'?'}).innerText.trim()+'='+((x.querySelector('.ant-select-selection-item')||{innerText:''}).innerText)});res(JSON.stringify(vs));},500);},500);})"
+```
+
+期望回读 `["目标保护区=开发网","审批流程=终端区-开发网","文件来源=本地文件"]`。
+选「安全桌面」同款，把匹配串换掉即可；§4 键盘路径仍是等价 fallback。
+
+**S3 大文件注入（>1MB 直接走这条，别先试直注入）**：
+
+```powershell
+# 后台起 CORS 服务
+python <skill>/scripts/serve-cors.py "<文件所在目录>" 18731
+agent-browser eval "var fr=document.querySelector('iframe');var w=fr.contentWindow;var d=w.document;fetch('http://127.0.0.1:18731/<文件名>').then(function(r){return r.arrayBuffer()}).then(function(buf){var f=new w.File([new w.Uint8Array(buf)],'<文件名>');var dt=new w.DataTransfer();dt.items.add(f);var inp=d.querySelector('input.upload-input');inp.files=dt.files;inp.dispatchEvent(new w.Event('input',{bubbles:true}));inp.dispatchEvent(new w.Event('change',{bubbles:true}));return new Promise(function(res){setTimeout(function(){var names=[].slice.call(d.querySelectorAll('.ant-modal *')).filter(function(e){return e.children.length===0&&e.innerText&&e.innerText.indexOf('<文件名>')>=0}).map(function(e){return e.innerText.trim()});var sb=[].slice.call(d.querySelectorAll('.ant-modal button')).find(function(b){return b.innerText.indexOf('上传提交')>=0});res(JSON.stringify({fileRows:names,submitDisabled:sb?sb.disabled:'no-btn'}));},1500);});})"
+```
+
+回读 `submitDisabled:false` 即按钮已亮。**注入目标注意**：`input[type=file]`
+（`input.upload-input`）**不在 `.ant-modal` 里**——它是页面级隐藏上传器
+（parentCls=file-uploader），弹窗「选择文件」按钮触发的就是它；往弹窗里找会拿 null。
+67MB 文件 fetch→注入→列表出现全程约 3 秒。
+
+**S4 描述 + 提交 + 拿工单号（关键：提交后绝不马上 reload）**：
+
+```powershell
+# 描述（React 受控 textarea：原生 setter + input 事件）
+agent-browser eval "var fr=document.querySelector('iframe');var w=fr.contentWindow;var d=w.document;var ta=d.querySelector('.ant-modal textarea');var setter=Object.getOwnPropertyDescriptor(w.HTMLTextAreaElement.prototype,'value').set;setter.call(ta,'<描述>');ta.dispatchEvent(new w.Event('input',{bubbles:true}));ta.value.length"
+# 提交
+agent-browser eval "var d=document.querySelector('iframe').contentDocument;var sb=[].slice.call(d.querySelectorAll('.ant-modal button')).find(function(b){return b.innerText.indexOf('上传提交')>=0});sb.click();'clicked'"
+```
+
+**提交后轮询完成信号（不刷新页面！）**，每 6s 一次 eval：
+
+```powershell
+agent-browser eval "var d=document.querySelector('iframe').contentDocument;var t=(d.body.innerText||'');var m=/TICKET\s*\d+/.exec(t);JSON.stringify({modal:!!d.querySelector('.ant-modal'),uploading:(t.indexOf('上传中')>=0||t.indexOf('上传进度')>=0),ticket:m?m[0]:''})"
+```
+
+- 完成 = `modal:false && uploading:false`（toast TICKET 常 3 秒即逝抓不到，以弹窗关闭+进度消失为准）；
+- **为什么不能提前 reload**：`ticket/submit` 200 只是建单，文件本体随后以 `upload-file-aj`
+  分块 POST 上传（35MB≈3 块、12s；64MB 更久）。提交后马上 reload 会**掐断在途分块**——
+  工单存在但文件没传完，**永远不入列**，表象像「安全桌面区滞后 5–7 分钟」。
+  2026-11-24 实测踩坑：sleep 2 就 reload 的 64MB/35MB 单全部失踪，改为轮询后 4 单全成
+  （14336/14358/14359/14360）；
+- 完成后**再** `location.reload()` 一次，读「我发送的」顶部行拿申请号。
+
+**双区发送（默认）**：S1–S4 走完一区后，重新 S1 开弹窗 → S2 换匹配串选另一区
+（安全桌面 = `o.getAttribute('title')==='安全桌面'`，审批流程自动联动 终端区-安全桌面）
+→ S3 重新注入（弹窗列表按区独立，同名文件跨区不冲突）→ S4 描述标注区名便于区分。
+同区同名文件的重发不与旧单去重：若上一单因提前 reload 被掐断（列表查无此单），
+直接重发一单新号即可，被掐断的幽灵单不会入列。
+
 ## 排错表
 
 | 症状 | 原因 | 处理 |
@@ -151,4 +221,9 @@ icon.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true, 
 | toast「文件名xxx已存在」 | 弹窗内按文件名去重 | 换文件名，或删列表行后重注入 |
 | 「上传提交」一直灰 | 文件未进列表或有必填项没填 | snapshot 检查弹窗各字段 |
 | 提交链路全 200 但「我发送的」列表不见新行 | search/send 200 只代表请求成功，列表未必重渲染；且 `open` 同 URL 是 hash 空导航不刷新 | `agent-browser eval 'location.reload()'` 强刷页面后核对顶部新申请号（2026-11-18 TICKET 14205 实测：ticket/submit + upload-file-aj + search/send 全 200，强刷前列表仍停在 14119） |
-| 强刷后「我发送的」仍无新行（尤其安全桌面区） | 部分区工单入列滞后，实测 5–7 分钟（14206/14318/14319），一次 reload 后的列表还不含它 | 等几分钟再强刷或用列表搜索框按文件名查，**别重发**——急于重试会造重复工单 |
+| 提交后列表查无此单（大文件尤其） | 提交后马上 reload 掐断了在途 `upload-file-aj` 分块：工单已建但文件没传完，永不入列，表象像「滞后」 | 先 `agent-browser network requests --filter upload` 看最后一个分块有无状态码；缺=被掐断，直接重发一单（幽灵单不入列不冲突）；以后提交后按 §9 S4 轮询「弹窗关闭+无上传进度」，不刷新页面 |
+| 强刷后「我发送的」仍无新行 | 见上行；若最后一个分块 200 完整，才是真入列滞后 | 等几分钟再强刷或用列表搜索框按文件名查，**别重发**——急于重试会造重复工单 |
+| 流程慢：整页 snapshot 输出几十 KB | `snapshot -i` 会 dump 整个「我发送的」列表表格 | 弹窗交互全程用 §9 eval 直驱（免 snapshot 免 ref）；refs/键盘路径仅作 fallback |
+| `.ant-modal` 里找不到 `input[type=file]`（null） | file input 不在弹窗 DOM 内，是页面级隐藏上传器 | 直接 `d.querySelector('input.upload-input')` 注入（§9 S3） |
+| 提交后轮询 TICKET toast 扑空 | toast 3 秒即逝，4 秒后查已消失 | `Start-Sleep 2` → `location.reload()` → 读列表顶部行拿申请号（§9 S4），别轮询 |
+| tab 变 about:blank / 打开站点报证书警告页 | daemon 丢了带证书放行参数的浏览器（空闲重启/跨会话后常见） | `agent-browser close` + 重跑 login.ps1（幂等，已登录时快速通过） |

@@ -7,7 +7,7 @@ description: Automate the innostar-ic 文件收发 system at https://172.16.15.8
 
 用 agent-browser 驱动本机系统 Chrome，在 innostar-ic 内网文件系统完成三件事：
 
-1. **发送**：登录 +「发送文件申请」提交（目标保护区默认「开发网」，用户点名其他保护区才改）
+1. **发送**：登录 +「发送文件申请」提交（**默认双区：安全桌面 + 开发网各一 TICKET**，2026-11-24 用户规则；仅当用户明确点名单区/其他接收人才减改）
 2. **接收**：从「我收到的」列表下载文件/文件夹（服务端打 zip），**绝不触碰删除按钮**
 3. **打包上传管线**（pack-to-dts 已于 2026-11-12 合并入本 skill）：任意资源 → 7z 离线包 → 直接传上开发网
 
@@ -27,7 +27,19 @@ description: Automate the innostar-ic 文件收发 system at https://172.16.15.8
 
 ## 发送流程（摘要）
 
-1. **启动 + 登录**（脚本先 `close` 再带证书放行参数启动，登录页在主文档，用 CSS 选择器）：
+**首选 = 一键脚本 `scripts/send-file.ps1`（2026-11-25 实测：小文件双区 15.4s；64MB 级约 40s，瓶颈是内网上传 3–5MB/s）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File <skill目录>\scripts\send-file.ps1 -File "D:\path\to\file.exe" [-Description "描述"] [-Zones 安全桌面,开发网]
+```
+
+- 默认双区各一 TICKET；自动登录恢复、自动起/停 CORS 服务、XHR 补丁捕获 ticket/submit 响应拿工单号（全程免刷新）
+- **agent 调用姿势（重要）**：分离启动 + 日志轮询（`Start-Process -RedirectStandardOutput out.log ... -PassThru` 后轮询日志出现 `TOTAL`），**不要在工具会话里管道捕获嵌套 powershell 的输出**——孙进程（agent-browser/node）继承 stdout 句柄不释放，`| Out-String` 会永久挂死（实测两次 240s 超时无输出）；`-ArgumentList` 里带空格的参数必须显式加引号，否则碎片会串位绑进 `-Zones`
+- **改脚本前必读**：PS5.1 下 `$ErrorActionPreference='Stop'` 会被 agent-browser 的 stderr 噪声（`[agent-browser] launched browser` 等）炸掉或挂住 → 保持 EAP=Continue + 显式校验；agent-browser eval 对返回值再 JSON 编码一层（引号变 `\"`）→ 断言一律用无引号纯字符串协议（`ses=true` / `armed=true` / `modal=false up=false` / `id:14361`）
+
+**手动 eval 路径**（调试/脚本失效时用）= 全程主文档 eval 钻同源 iframe（2026-11-24 实测 TICKET 14336，完整模板见 [flow.md §9](references/flow.md)）。不要整页 `snapshot -i`——它会 dump 整个列表表格（几十 KB），是流程最大耗时源；refs/键盘路径仅作 fallback。
+
+1. **启动 + 登录**（幂等；会话丢失也用它恢复。脚本先 `close` 再带证书放行参数启动，登录页在主文档，用 CSS 选择器）：
 
    ```powershell
    & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File <skill目录>/scripts/login.ps1
@@ -35,19 +47,10 @@ description: Automate the innostar-ic 文件收发 system at https://172.16.15.8
 
    脚本为 UTF-8 BOM，Windows PowerShell 5.1 与 pwsh 7 均可执行（含中文字符串，勿转存为无 BOM）。登录后通常直接落在 `#/zxfile`；若不在再执行下一步跳转。
 
-2. **进入文件页**：`agent-browser open https://172.16.15.88/#/zxfile`，然后 `agent-browser snapshot -i` 确认 iframe 里出现「文件收发」
-3. **打开弹窗**：snapshot 找到 button「发送文件申请」的 ref 并 `agent-browser click @ref`
-4. **选下拉**（Ant Design Select，直接 click 会被自身值文本遮挡 → 走键盘）：
-   - 目标保护区：`agent-browser focus @ref` → `agent-browser press ArrowDown` 展开 → snapshot 读 listbox 选项 ref → `press ArrowDown` 移到「开发网」→ `press Enter`
-   - 审批流程自动联动（开发网 → 终端区-开发网）；接收用户默认当前账号；文件来源默认本地文件
-5. **注入文件**（`upload` 命令对 iframe 内的 input 无效，必须用脚本）：
-
-   ```powershell
-   & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File <skill目录>/scripts/inject-upload.ps1 -File <本地文件路径>
-   ```
-
-   snapshot/截图确认文件出现在弹窗列表、「上传提交」按钮变亮。**文件 base64 后超出 ~30K 字符（argv 上限）会报 `filename or extension is too long`** → 改走本地 CORS 服务 + 页面 fetch 注入：`python <skill目录>/scripts/serve-cors.py <文件所在目录> 18731` 后台起服务，再按 [flow.md 排错表](references/flow.md) 的 eval 手法注入。
-6. **描述 + 提交**：`agent-browser fill @描述框ref '<描述>'` → `agent-browser click @上传提交ref` → 等待绿色提示 `TICKET <id> 提交成功`，弹窗关闭回到「我发送的」列表
+2. **打开弹窗**：eval 按 innerText 找「发送文件申请」按钮 native click（React 有效），700ms 后回读 `.ant-modal` 存在性。**进入文件页**若需要：`agent-browser open https://172.16.15.88/#/zxfile`
+3. **目标保护区 → 开发网**：eval 派发 `mousedown/mouseup/click` 展开 Ant Select → 点 `title==='开发网'` 的 option → 回读三个 select 值确认；期望 `["目标保护区=开发网","审批流程=终端区-开发网","文件来源=本地文件"]`。接收用户默认当前账号
+4. **注入文件**：≤1MB 可用 inject-upload.ps1（base64 argv 上限 ~30K 字符）；更大**直接** serve-cors.py + 页面 fetch 注入（67MB 实测约 3 秒，不要先试直注入浪费时间）。**注入目标是页面级 `input.upload-input`，不在 `.ant-modal` 内**；回读 `submitDisabled:false` 即按钮已亮
+5. **描述 + 提交**：React 受控 textarea 用原生 setter + input 事件填描述 → eval 点「上传提交」→ **每 6s 轮询「弹窗关闭 + 无『上传中』字样」直至完成（绝不马上 reload——提前刷新会掐断在途 upload-file-aj 分块，工单永不入列）** → 完成后 reload 一次读「我发送的」顶部行拿申请号
 
 ## 接收下载流程（摘要，实测 2026-11-12）
 
@@ -73,9 +76,9 @@ python <skill目录>/scripts/pack/pack-vsix.py --extensions "ms-python.python" -
 
 统一约定：7z 根目录包一层 `<包名>/`，内含下载物 + `使用说明.txt`；**Python 包默认目标 3.10 + win_amd64**（`--python-version` 可覆盖）；VSIX 输入 `publisher.extension`，多个用 `|` 分隔。
 
-## 打包 → 上传管线（默认开发网）
+## 打包 → 上传管线（默认双区）
 
-用户说「打包传上去 / 打包到开发网 / 下到 DTS」时：`pack-*.py` 出包 → 走上面发送流程，**目标保护区默认「开发网」**、接收用户默认当前账号；仅当用户明确点名其他保护区（如安全桌面、其他接收人）才改下拉选择。
+用户说「打包传上去 / 打包到开发网 / 下到 DTS」时：`pack-*.py` 出包 → 走上面发送流程，**默认双区：安全桌面 + 开发网各一 TICKET，都要报给用户**（2026-11-24 用户规则，与发布aws一致）；接收用户默认当前账号；仅当用户明确点名单区或其他接收人才减改。安全桌面区工单入列滞后 5–7 分钟，别因列表暂无新行而重发。
 
 ## 发布 agent-workspace（触发词「发布aws」）
 
