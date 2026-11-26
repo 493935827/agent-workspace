@@ -19,6 +19,13 @@
     TcpPort    = 8888
     ControlPort = 8889
 
+    # 共享终端桥（shell，菜单 11）：与串口桥并存，使用独立端口。
+    ShellPreset      = "powershell"   # powershell / cmd / python / 任意可执行文件
+    ShellTcpPort     = 8890
+    ShellControlPort = 8891
+    ShellProcArgs    = ""             # 终端子进程额外参数，例：'-NoProfile'
+    ShellProcCwd     = ""             # 终端子进程工作目录，留空随桥进程
+
     # 常见嵌入式 Shell 按 Enter 时使用 CR；也可设置为 lf 或 crlf。
     LineEnding = "cr"
     Encoding   = "utf-8"

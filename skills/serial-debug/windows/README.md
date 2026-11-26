@@ -72,6 +72,7 @@ Qt 工作台（`serial_gui.cmd`）无需命令行：直连会话默认开启「�
 - `LineEnding`：按 Enter 时发送的换行符。嵌入式 Shell 常用 `cr`；若命令不执行，可尝试 `crlf` 或 `lf`。
 - `CharDelay`：逐字节发送间隔。较慢的 Shell 可以保留默认 `0.005`，高速可靠链路可设为 `0`。
 - `TcpPort`：共享串口桥的本机 TCP 端口，默认 `8888`。
+- `ShellPreset` / `ShellTcpPort` / `ShellControlPort`：菜单 11 共享终端桥（shell）的预设与端口，默认 `powershell` / `8890` / `8891`；`ShellProcArgs`、`ShellProcCwd` 传给终端子进程。
 - `Python`：菜单和串口桥使用的解释器，默认 `python`。如果系统 Python 装不了 pyserial（例如 uv 管理的 `externally-managed` 环境），把它改成仓库内虚拟环境的完整路径，例如 `D:\path\to\serial-debug\.venv\Scripts\python.exe`。
 
 默认监听 `127.0.0.1`，只有本机可以连接。工具不会主动切换 DTR/RTS，因此不会故意触发复位或 Boot 模式。
@@ -87,17 +88,20 @@ Qt 工作台（`serial_gui.cmd`）无需命令行：直连会话默认开启「�
 - Enter 使用配置中的 `LineEnding`。
 - 发送被拒绝（例如代理占用串口期间）时连接保持不断开，终端会显示 `[串口桥] 发送被拒绝：…` 提示，收回控制权后可直接继续发送。
 
-## 进程终端桥（proc://）
+## 进程终端桥（proc://，共享 shell）
 
-桥不只能接串口，还能共享本机命令行进程（人和 agent 共用同一条 CMD / PowerShell 会话）：
+桥不只能接串口，还能共享本机命令行进程（人和 agent 共用同一条 CMD / PowerShell / REPL 会话）：
 
 ```powershell
 .venv\Scripts\python.exe scripts\shared_serial_bridge.py bridge --port proc://powershell --tcp 8890
 ```
 
 - 预设端点：`proc://cmd`、`proc://powershell`（优先 pwsh）、`proc://python`，或 `proc://<可执行文件>` 配 `--proc-args` / `--proc-cwd`。
+- Windows 上默认以 **ConPTY 真终端**运行：shell 自己打印提示符、逐字回显、行编辑和历史可用，**Ctrl+C 能真正中断正在运行的命令**（等价于真窗口里的体验）；会话日志里出现的 VT 控制序列属正常现象。
+- 控制台尺寸默认 120×30，可用 `--proc-cols` / `--proc-rows` 调整；`--proc-conpty off` 可强制退回旧的管道模式（按行输入、Ctrl+C 仅清行）。
 - 交互终端与 agent 发送用法与串口桥完全一致（`connect` / `send` 指向同一个 TCP 端点）。
-- 差异：按行输入（回车后命令行才回显给所有人）；无波特率概念，`--autobaud` 被忽略；`cmd` 预设输出为 GBK，中文乱码时给 `connect`/`send` 加 `--encoding gbk`；在共享 shell 里输入 `exit` 会让桥进入已释放状态（不会偷偷重启进程），用 `serial.open` 或 GUI 重连可重新拉起。
+- 无波特率概念，`--autobaud` 被忽略；`cmd` 预设输出为 GBK，中文乱码时给 `connect`/`send` 加 `--encoding gbk`；在共享 shell 里输入 `exit` 会让桥进入已释放状态（不会偷偷重启进程），用 `serial.open` 或 GUI 重连可重新拉起。
+- **菜单 11「共享终端桥」**：与串口桥并存管理一条 shell 桥（独立端口 8890/8891 与 pid 文件），可启动、换预设、开终端、发单条命令、停止；等价命令行 `-Action ShellStart [-ShellPreset powershell]` / `ShellSend -Command "..."` / `ShellStatus` / `ShellStop`。预设与端口在 `serial_config.psd1` 的 `ShellPreset` / `ShellTcpPort` / `ShellControlPort` / `ShellProcArgs` / `ShellProcCwd`。
 - 详细行为见 `references/shared-bridge.md` 的「Process Terminal Bridges」一节。
 
 ## PowerShell 命令
@@ -116,6 +120,10 @@ Qt 工作台（`serial_gui.cmd`）无需命令行：直连会话默认开启「�
 .\serial_console.ps1 -Action Send -Command "help" -Exclusive
 .\serial_console.ps1 -Action Ports
 .\serial_console.ps1 -Action Stop
+.\serial_console.ps1 -Action ShellStart
+.\serial_console.ps1 -Action ShellSend -Command "Get-Location"
+.\serial_console.ps1 -Action ShellStatus
+.\serial_console.ps1 -Action ShellStop
 ```
 
 `-Action Send` 的退出码：`0` 收到回应；`3` 已发送但回应窗口内没有任何字节——命令可能已送达并执行，空回应不等于设备死亡；`2` 连接中断、结果不确定。

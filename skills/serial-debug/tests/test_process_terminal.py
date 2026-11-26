@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """proc:// process-terminal adapter: line discipline, echo, EOF semantics."""
 import os
+import socket
+import subprocess
 import sys
 import time
 import unittest
@@ -8,7 +10,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 
-from process_terminal import ProcessTerminal, SpecError, open_endpoint, resolve_spec  # noqa: E402
+from process_terminal import (  # noqa: E402
+    ConPtyTerminal, ProcessTerminal, SpecError, conpty_supported, open_endpoint,
+    resolve_spec)
 
 # Deterministic child: banner, one ECHO per input line, exits on 'exit'.
 CHILD = (
@@ -137,6 +141,14 @@ class ProcessSpecTests(unittest.TestCase):
         self.assertEqual(argv[argv.index('-Command') + 1], '-')
         self.assertIn(b'OutputEncoding', init)
 
+    def test_powershell_preset_interactive_drops_command_dash(self):
+        # A true console child reads from the console; powershell.exe refuses
+        # "-Command -" when stdin is a console, so ConPTY mode must use -NoExit.
+        argv, env, init, cwd = resolve_spec('proc://powershell', interactive=True)
+        self.assertIn('-NoExit', argv)
+        self.assertNotIn('-Command', argv)
+        self.assertIn(b'OutputEncoding', init)
+
     def test_generic_exe_with_args(self):
         argv, env, init, cwd = resolve_spec(
             f'proc://{sys.executable}', proc_args='-u -c "print(1)"', proc_cwd=os.getcwd())
@@ -161,6 +173,183 @@ class CmdPresetSmokeTests(unittest.TestCase):
         terminal.write(b'echo probe123\r')
         data, error = read_until(terminal, b'probe123', timeout=8)
         self.assertIsNone(error, repr(data))
+
+
+def needs_conpty(testcase):
+    """Class/method decorator guard: real ConPTY tests need Windows 10 1809+."""
+    return unittest.skipUnless(
+        os.name == 'nt' and conpty_supported(),
+        'ConPTY needs Windows 10 1809+')(testcase)
+
+
+@needs_conpty
+class ConPtyTerminalTests(unittest.TestCase):
+    """The true-terminal contract: child echoes itself, Ctrl+C interrupts."""
+
+    def make_terminal(self, **kwargs):
+        terminal = ConPtyTerminal('proc://cmd', **kwargs)
+        self.addCleanup(terminal.close)
+        return terminal
+
+    def test_per_character_echo_and_true_prompt(self):
+        # Pipe mode shows nothing until Enter; ConPTY echoes every keystroke
+        # through the console host, so even 'echo' typed one char at a time
+        # is visible before the command runs.
+        terminal = self.make_terminal()
+        data, error = read_until(terminal, b'>', timeout=10)
+        self.assertIsNone(error, repr(data))
+        for byte in b'echo probe42':
+            terminal.write(bytes([byte]))
+            time.sleep(0.005)
+        terminal.write(b'\r')
+        data, error = read_until(terminal, b'probe42', timeout=10)
+        self.assertIsNone(error, repr(data))
+
+    def test_ctrl_c_interrupts_running_command(self):
+        terminal = self.make_terminal()
+        data, error = read_until(terminal, b'>', timeout=10)
+        self.assertIsNone(error, repr(data))
+        terminal.write(b'ping -n 30 127.0.0.1\r')
+        data, error = read_until(terminal, b'TTL', timeout=10)
+        self.assertIsNone(error, f'ping 没有开始输出: {data!r}')
+        terminal.write(b'\x03')
+        # The decisive signal: the prompt comes back while ping would still
+        # be running (30 replies at 1s intervals). Pipe mode cannot do this.
+        data, error = read_until(terminal, b'>', timeout=10)
+        self.assertIsNone(error, f'Ctrl+C 后提示符未返回: {data!r}')
+
+    def test_exit_code_reported_on_eof(self):
+        terminal = self.make_terminal()
+        data, error = read_until(terminal, b'>', timeout=10)
+        self.assertIsNone(error, repr(data))
+        terminal.write(b'exit 7\r')
+        deadline = time.monotonic() + 10
+        with self.assertRaises(OSError) as ctx:
+            while time.monotonic() < deadline:
+                terminal.read(4096)
+                time.sleep(0.005)
+            raise AssertionError('EOF not reported within 10s')
+        self.assertIn('exit code=7', str(ctx.exception))
+        with self.assertRaises(OSError):
+            terminal.write(b'x\r')
+
+    def test_close_shuts_down_child_and_stream(self):
+        terminal = self.make_terminal()
+        data, error = read_until(terminal, b'>', timeout=10)
+        self.assertIsNone(error, repr(data))
+        terminal.close()
+        with self.assertRaises(OSError):
+            terminal.read(1)
+        with self.assertRaises(OSError):
+            terminal.write(b'x\r')
+
+    def test_resize_succeeds_on_live_console(self):
+        terminal = self.make_terminal()
+        data, error = read_until(terminal, b'>', timeout=10)
+        self.assertIsNone(error, repr(data))
+        self.assertTrue(terminal.resize(100, 25))
+
+
+@needs_conpty
+class ConPtyEndToEndBridgeTests(unittest.TestCase):
+    """Full path: TCP client -> service -> ConPTY -> cmd.exe -> back."""
+
+    BRIDGE_SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'shared_serial_bridge.py'
+
+    @staticmethod
+    def free_tcp_port():
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('127.0.0.1', 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        return port
+
+    def test_send_expect_roundtrip_through_conpty_cmd(self):
+        import tempfile
+
+        import serial_service_client
+
+        tcp = self.free_tcp_port()
+        control = self.free_tcp_port()
+        with tempfile.TemporaryDirectory() as log_dir:
+            bridge = subprocess.Popen(
+                [sys.executable, str(self.BRIDGE_SCRIPT), 'bridge',
+                 '--port', 'proc://cmd', '--tcp', str(tcp), '--control', str(control),
+                 '--proc-conpty', 'on',
+                 '--log', str(Path(log_dir) / 'proc_e2e.log')],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                deadline = time.time() + 10
+                while True:
+                    try:
+                        probe = socket.create_connection(('127.0.0.1', tcp), timeout=0.3)
+                        probe.close()
+                        break
+                    except OSError:
+                        if time.time() > deadline or bridge.poll() is not None:
+                            self.fail('bridge did not start listening')
+                        time.sleep(0.05)
+                sent = subprocess.run(
+                    [sys.executable, str(self.BRIDGE_SCRIPT), 'send', 'echo probe77',
+                     '--host', '127.0.0.1', '--tcp', str(tcp),
+                     '--newline', '--line-ending', 'cr',
+                     '--expect', 'probe77', '--expect-timeout', '15'],
+                    capture_output=True, timeout=30)
+                self.assertEqual(sent.returncode, 0,
+                                 f'send failed: rc={sent.returncode} '
+                                 f'out={sent.stdout!r} err={sent.stderr!r}')
+                self.assertIn(b'probe77', sent.stdout)
+            finally:
+                client = None
+                try:
+                    client = serial_service_client.Client('127.0.0.1', control, timeout=5)
+                    client.call('service.stop')
+                except Exception:
+                    pass
+                if client is not None:
+                    client.close()
+                try:
+                    bridge.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    bridge.kill()
+                    bridge.wait(timeout=3)
+
+
+class ProcTerminalModeTests(unittest.TestCase):
+    def test_open_endpoint_pipe_mode_forces_legacy_adapter(self):
+        terminal = open_endpoint('proc://cmd', proc_terminal='pipe')
+        self.addCleanup(terminal.close)
+        self.assertIsInstance(terminal, ProcessTerminal)
+        self.assertEqual(terminal.proc_mode, 'pipe')
+
+    def test_open_endpoint_off_alias_forces_pipe(self):
+        terminal = open_endpoint('proc://cmd', proc_terminal='off')
+        self.addCleanup(terminal.close)
+        self.assertIsInstance(terminal, ProcessTerminal)
+
+    def test_open_endpoint_unknown_mode_fails_closed(self):
+        with self.assertRaises(ValueError):
+            open_endpoint('proc://cmd', proc_terminal='turbo')
+
+    @needs_conpty
+    def test_open_endpoint_forced_conpty(self):
+        terminal = open_endpoint('proc://cmd', proc_terminal='on')
+        self.addCleanup(terminal.close)
+        self.assertIsInstance(terminal, ConPtyTerminal)
+        self.assertEqual(terminal.proc_mode, 'conpty')
+
+    def test_open_endpoint_auto_on_non_windows_is_pipe(self):
+        if os.name == 'nt' and conpty_supported():
+            self.skipTest('auto falls back to pipe only off-Windows')
+        terminal = open_endpoint('proc://cmd')
+        self.addCleanup(terminal.close)
+        self.assertIsInstance(terminal, ProcessTerminal)
+
+    def test_conpty_unsupported_off_windows_raises(self):
+        if os.name == 'nt' and conpty_supported():
+            self.skipTest('forced ConPTY works on this host')
+        with self.assertRaises(OSError):
+            open_endpoint('proc://cmd', proc_terminal='on')
 
 
 if __name__ == '__main__':

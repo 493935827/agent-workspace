@@ -1,8 +1,10 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet("Menu", "Start", "Stop", "Release", "Status", "Connect", "Send", "Ports", "AutoDetect", "DetectConnect", "AutoBaud")]
+    [ValidateSet("Menu", "Start", "Stop", "Release", "Status", "Connect", "Send", "Ports", "AutoDetect", "DetectConnect", "AutoBaud",
+                 "ShellStart", "ShellStop", "ShellStatus", "ShellSend")]
     [string]$Action = "Menu",
     [string]$Command,
+    [string]$ShellPreset,
     [switch]$Passive,
     [switch]$Exclusive
 )
@@ -17,6 +19,7 @@ $DetectorPath = Join-Path $ToolDir "detect_serial_port.py"
 $BaudDetectorPath = Join-Path $ToolDir "detect_serial_baud.py"
 $RuntimeDir = Join-Path $ToolDir ".runtime"
 $PidPath = Join-Path $RuntimeDir "bridge.pid"
+$ShellPidPath = Join-Path $RuntimeDir "bridge_shell.pid"
 $DiagnosticLog = Join-Path $RuntimeDir "bridge_diagnostic.log"
 $DiagnosticErrorLog = Join-Path $RuntimeDir "bridge_error.log"
 $LogDir = Join-Path $ToolDir "logs"
@@ -74,23 +77,26 @@ function Set-LocalBaud([int]$Baud) {
 }
 
 function Get-BridgeProcess {
-    if (-not (Test-Path -LiteralPath $PidPath)) { return $null }
+    # $PidFile selects which managed bridge to look up: the serial bridge
+    # (bridge.pid) or the shell/terminal bridge (bridge_shell.pid).
+    param([string]$PidFile = $PidPath)
+    if (-not (Test-Path -LiteralPath $PidFile)) { return $null }
     $SavedPid = 0
     try {
-        $SavedPid = [int](Get-Content -LiteralPath $PidPath -Raw -ErrorAction Stop)
+        $SavedPid = [int](Get-Content -LiteralPath $PidFile -Raw -ErrorAction Stop)
     }
     catch {
         # A truncated or hand-mangled pid file must not wedge Status/Start/Stop.
-        Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
         return $null
     }
     if ($SavedPid -le 0) {
-        Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
         return $null
     }
     $ProcessInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $SavedPid" -ErrorAction SilentlyContinue
     if ($null -eq $ProcessInfo -or $ProcessInfo.CommandLine -notlike "*shared_serial_bridge.py*bridge*") {
-        Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
         return $null
     }
     return $ProcessInfo
@@ -113,6 +119,66 @@ function Assert-PythonAndPySerial($Config) {
     }
 }
 
+function Start-BridgeProcess {
+    # Shared launch + readiness probe for both bridge kinds: hidden start,
+    # pid file, and a slow-start loop that never orphans a live bridge.
+    param(
+        [string[]]$BridgeArguments,
+        [string]$PidFile,
+        [string]$HostName,
+        [int]$TcpPortNumber,
+        [string]$FailureHint,
+        [string]$PythonExe
+    )
+    Remove-Item -LiteralPath $DiagnosticLog, $DiagnosticErrorLog -Force -ErrorAction SilentlyContinue
+    $Started = Start-Process -FilePath $PythonExe -ArgumentList $BridgeArguments -WorkingDirectory $ToolDir `
+        -WindowStyle Hidden -RedirectStandardOutput $DiagnosticLog `
+        -RedirectStandardError $DiagnosticErrorLog -PassThru
+    Set-Content -LiteralPath $PidFile -Value $Started.Id -Encoding ascii
+    Start-Sleep -Milliseconds 900
+    # Slow starts (antivirus, cold Python) must not orphan a live bridge: keep
+    # probing while the recorded PID is alive, and never delete the pid file
+    # for a process that is still running.
+    $Running = Get-BridgeProcess -PidFile $PidFile
+    $Deadline = (Get-Date).AddSeconds(6)
+    while ($null -ne $Running -and -not (Test-TcpEndpoint $HostName $TcpPortNumber) -and (Get-Date) -lt $Deadline) {
+        Start-Sleep -Milliseconds 300
+        $Running = Get-BridgeProcess -PidFile $PidFile
+    }
+    if ($null -eq $Running) {
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        $Details = if (Test-Path -LiteralPath $DiagnosticErrorLog) {
+            Get-Content -LiteralPath $DiagnosticErrorLog -Raw
+        } else { "没有诊断输出。" }
+        throw "桥启动失败。$FailureHint`n$Details"
+    }
+    if (-not (Test-TcpEndpoint $HostName $TcpPortNumber)) {
+        # The bridge process is alive but the endpoint is not ready yet; keep
+        # the pid file so Status/Stop can still manage it.
+        throw "桥进程已启动但共享地址 $($HostName):$TcpPortNumber 迟迟未就绪；请稍后重试状态查看，或停止后重新启动。"
+    }
+    return $Running
+}
+
+function Stop-BridgeProcess {
+    param([string]$PidFile, [string]$Label)
+    $Running = Get-BridgeProcess -PidFile $PidFile
+    if ($null -eq $Running) {
+        Write-Host "$Label 当前没有运行。" -ForegroundColor Yellow
+        return
+    }
+    Stop-Process -Id $Running.ProcessId -Force
+    for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
+        if ($null -eq (Get-Process -Id $Running.ProcessId -ErrorAction SilentlyContinue)) { break }
+        Start-Sleep -Milliseconds 100
+    }
+    if ($null -ne (Get-Process -Id $Running.ProcessId -ErrorAction SilentlyContinue)) {
+        throw "$Label 进程未能退出，端口可能仍被占用。"
+    }
+    Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+    Write-Host "已停止$Label（PID $($Running.ProcessId)），资源已释放。" -ForegroundColor Green
+}
+
 function Start-SerialBridge {
     $Config = Get-SerialConfig
     if ([string]::IsNullOrWhiteSpace([string]$Config.Port)) {
@@ -125,7 +191,6 @@ function Start-SerialBridge {
     }
     Assert-PythonAndPySerial $Config
     New-Item -ItemType Directory -Path $RuntimeDir, $LogDir -Force | Out-Null
-    Remove-Item -LiteralPath $DiagnosticLog, $DiagnosticErrorLog -Force -ErrorAction SilentlyContinue
     $SafePortName = ([string]$Config.Port) -replace '[^A-Za-z0-9._-]', '_'
     $SerialLog = Join-Path $LogDir ("serial_{0}_{1}.log" -f $SafePortName, (Get-Date -Format "yyyyMMdd_HHmmss"))
     $Arguments = @(
@@ -148,32 +213,10 @@ function Start-SerialBridge {
         if ($null -ne $Config.AutoBaudSeconds) { $Arguments += @("--autobaud-seconds", [string][double]$Config.AutoBaudSeconds) }
         if ($null -ne $Config.AutoBaudRounds) { $Arguments += @("--autobaud-rounds", [string][int]$Config.AutoBaudRounds) }
     }
-    $Started = Start-Process -FilePath $Config.Python -ArgumentList $Arguments -WorkingDirectory $ToolDir `
-        -WindowStyle Hidden -RedirectStandardOutput $DiagnosticLog `
-        -RedirectStandardError $DiagnosticErrorLog -PassThru
-    Set-Content -LiteralPath $PidPath -Value $Started.Id -Encoding ascii
-    Start-Sleep -Milliseconds 900
-    # Slow starts (antivirus, cold Python) must not orphan a live bridge: keep
-    # probing while the recorded PID is alive, and never delete the pid file
-    # for a process that is still running.
-    $Running = Get-BridgeProcess
-    $Deadline = (Get-Date).AddSeconds(6)
-    while ($null -ne $Running -and -not (Test-TcpEndpoint $Config.Host $Config.TcpPort) -and (Get-Date) -lt $Deadline) {
-        Start-Sleep -Milliseconds 300
-        $Running = Get-BridgeProcess
-    }
-    if ($null -eq $Running) {
-        Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
-        $Details = if (Test-Path -LiteralPath $DiagnosticErrorLog) {
-            Get-Content -LiteralPath $DiagnosticErrorLog -Raw
-        } else { "没有诊断输出。" }
-        throw "串口桥启动失败，请检查 COM 口、波特率以及串口是否被其他软件占用。`n$Details"
-    }
-    if (-not (Test-TcpEndpoint $Config.Host $Config.TcpPort)) {
-        # The bridge process is alive but the endpoint is not ready yet; keep
-        # the pid file so Status/Stop can still manage it.
-        throw "串口桥进程已启动但共享地址 $($Config.Host):$($Config.TcpPort) 迟迟未就绪；请稍后重试状态查看，或停止后重新启动。"
-    }
+    $Running = Start-BridgeProcess -BridgeArguments $Arguments -PidFile $PidPath `
+        -HostName ([string]$Config.Host) -TcpPortNumber ([int]$Config.TcpPort) `
+        -FailureHint "请检查 COM 口、波特率以及串口是否被其他软件占用。" `
+        -PythonExe $Config.Python
     Write-Host "已启动：$($Config.Port)，$($Config.Baud) 波特" -ForegroundColor Green
     Write-Host "共享地址：$($Config.Host):$($Config.TcpPort)"
     Write-Host "进程 PID：$($Running.ProcessId)"
@@ -181,21 +224,156 @@ function Start-SerialBridge {
 }
 
 function Stop-SerialBridge {
-    $Running = Get-BridgeProcess
+    Stop-BridgeProcess -PidFile $PidPath -Label "串口桥"
+}
+
+# ---- 共享终端桥（shell）：与串口桥同一套 connect/send/租约端点 --------------
+
+function Get-ShellPreset($Config) {
+    $Value = ([string]$Config.ShellPreset).Trim().ToLowerInvariant()
+    if ([string]::IsNullOrWhiteSpace($Value)) { return "powershell" }
+    return $Value
+}
+
+function Get-ShellTcpPort($Config) {
+    if ($null -ne $Config.ShellTcpPort) { return [int]$Config.ShellTcpPort }
+    return 8890
+}
+
+function Get-ShellControlPort($Config) {
+    if ($null -ne $Config.ShellControlPort) { return [int]$Config.ShellControlPort }
+    return 8891
+}
+
+function Show-ShellStatus {
+    $Config = Get-SerialConfig
+    $Preset = Get-ShellPreset $Config
+    $TcpPort = Get-ShellTcpPort $Config
+    $ControlPort = Get-ShellControlPort $Config
+    $Running = Get-BridgeProcess -PidFile $ShellPidPath
+    Write-Host "终端预设： proc://$Preset"
+    Write-Host "共享地址： $($Config.Host):$TcpPort（控制端口 $ControlPort）"
     if ($null -eq $Running) {
-        Write-Host "串口桥当前没有运行。" -ForegroundColor Yellow
+        Write-Host "运行状态： 已停止" -ForegroundColor Yellow
+    } else {
+        Write-Host "运行状态： 运行中（PID $($Running.ProcessId)）" -ForegroundColor Green
+    }
+}
+
+function Start-ShellBridge {
+    param([string]$Preset)
+    $Config = Get-SerialConfig
+    if ([string]::IsNullOrWhiteSpace($Preset)) { $Preset = Get-ShellPreset $Config }
+    $TcpPort = Get-ShellTcpPort $Config
+    $ControlPort = Get-ShellControlPort $Config
+    $Existing = Get-BridgeProcess -PidFile $ShellPidPath
+    if ($null -ne $Existing) {
+        Write-Host "终端桥已经在运行（PID $($Existing.ProcessId)），预设 proc://$Preset 未生效；先停止再启动可切换。" -ForegroundColor Yellow
         return
     }
-    Stop-Process -Id $Running.ProcessId -Force
-    for ($Attempt = 0; $Attempt -lt 30; $Attempt++) {
-        if ($null -eq (Get-Process -Id $Running.ProcessId -ErrorAction SilentlyContinue)) { break }
-        Start-Sleep -Milliseconds 100
+    Assert-PythonAndPySerial $Config
+    New-Item -ItemType Directory -Path $RuntimeDir, $LogDir -Force | Out-Null
+    $SafePreset = ($Preset -replace '[^A-Za-z0-9._-]', '_')
+    $ShellLog = Join-Path $LogDir ("terminal_{0}_{1}.log" -f $SafePreset, (Get-Date -Format "yyyyMMdd_HHmmss"))
+    $Arguments = @(
+        $BridgePath, "bridge",
+        "--port", "proc://$Preset",
+        "--host", [string]$Config.Host,
+        "--tcp", [string]$TcpPort,
+        "--control", [string]$ControlPort,
+        "--log", $ShellLog
+    )
+    if ($null -ne $Config.ShellProcArgs -and [string]::IsNullOrWhiteSpace([string]$Config.ShellProcArgs) -eq $false) {
+        $Arguments += @("--proc-args", [string]$Config.ShellProcArgs)
     }
-    if ($null -ne (Get-Process -Id $Running.ProcessId -ErrorAction SilentlyContinue)) {
-        throw "串口桥进程未能退出，COM 口可能仍被占用。"
+    if ($null -ne $Config.ShellProcCwd -and [string]::IsNullOrWhiteSpace([string]$Config.ShellProcCwd) -eq $false) {
+        $Arguments += @("--proc-cwd", [string]$Config.ShellProcCwd)
     }
-    Remove-Item -LiteralPath $PidPath -Force -ErrorAction SilentlyContinue
-    Write-Host "已停止串口桥（PID $($Running.ProcessId)），COM 口已释放。" -ForegroundColor Green
+    $Running = Start-BridgeProcess -BridgeArguments $Arguments -PidFile $ShellPidPath `
+        -HostName ([string]$Config.Host) -TcpPortNumber $TcpPort `
+        -FailureHint "请检查预设名（powershell/cmd/python 或可执行文件）与 ShellProcArgs 配置。" `
+        -PythonExe $Config.Python
+    Write-Host "已启动终端桥：proc://$Preset（ConPTY 真终端：提示符/逐字回显/Ctrl+C 可中断）" -ForegroundColor Green
+    Write-Host "共享地址：$($Config.Host):$TcpPort（控制端口 $ControlPort）"
+    Write-Host "进程 PID：$($Running.ProcessId)"
+    Write-Host "终端日志：$ShellLog"
+}
+
+function Stop-ShellBridge {
+    Stop-BridgeProcess -PidFile $ShellPidPath -Label "终端桥"
+}
+
+function Open-ShellTerminal {
+    $Config = Get-SerialConfig
+    if ($null -eq (Get-BridgeProcess -PidFile $ShellPidPath)) { throw "终端桥已停止，请先启动。" }
+    $TcpPort = Get-ShellTcpPort $Config
+    Write-Host "已打开共享终端（逐字回显，Ctrl+C 会中断桥内正在运行的命令）。" -ForegroundColor Cyan
+    Write-Host "按 Ctrl+C 退出本终端，不会停止后台终端桥。"
+    & $Config.Python $BridgePath connect --host ([string]$Config.Host) --tcp $TcpPort `
+        --encoding $Config.Encoding --line-ending cr
+}
+
+function Send-ShellCommand([string]$Text) {
+    # Returns the bridge send exit code (0 = got a response, 2 = disconnected,
+    # 3 = sent but nothing came back yet, 4 = --expect unmatched).
+    $Config = Get-SerialConfig
+    if ($null -eq (Get-BridgeProcess -PidFile $ShellPidPath)) { throw "终端桥已停止，请先启动。" }
+    $TcpPort = Get-ShellTcpPort $Config
+    $Output = & $Config.Python $BridgePath send $Text --host $Config.Host --tcp $TcpPort `
+        --encoding $Config.Encoding --line-ending cr --newline
+    $Code = $LASTEXITCODE
+    foreach ($Line in @($Output)) { Write-Host $Line }
+    if ($Code -eq 3) {
+        # Shell 命令可能仍在执行（编译、长时间任务），空回应不等于失败。
+        Write-Host "已发送但未收到任何回应：命令可能仍在执行；可查看交互终端或终端日志。" -ForegroundColor Yellow
+    }
+    return $Code
+}
+
+function Show-ShellMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "========== 共享终端桥（Shell）==========" -ForegroundColor Cyan
+        Show-ShellStatus
+        $Config = Get-SerialConfig
+        Write-Host ""
+        Write-Host "1. 启动终端桥（预设：$(Get-ShellPreset $Config)）"
+        Write-Host "2. 更换预设并启动终端桥"
+        Write-Host "3. 打开终端"
+        Write-Host "4. 发送单条命令"
+        Write-Host "5. 停止终端桥"
+        Write-Host "0. 返回主菜单（后台终端桥保持运行）"
+        Write-Host ""
+        $Choice = Read-Host "请选择"
+        try {
+            switch ($Choice) {
+                "1" { Start-ShellBridge }
+                "2" {
+                    $Preset = Read-Host "请输入预设（powershell / cmd / python / 可执行文件，默认 powershell）"
+                    if ([string]::IsNullOrWhiteSpace($Preset)) { $Preset = "powershell" }
+                    Start-ShellBridge -Preset $Preset.Trim()
+                }
+                "3" { Open-ShellTerminal }
+                "4" {
+                    $Text = Read-Host "请输入命令"
+                    $Code = Send-ShellCommand $Text
+                    if ($Code -notin @(0, 3)) {
+                        Write-Host "错误：命令结果不确定，请先检查交互终端或日志，再决定是否重发。" -ForegroundColor Red
+                    }
+                }
+                "5" { Stop-ShellBridge }
+                "0" { return }
+                default { Write-Host "无法识别该选项。" -ForegroundColor Yellow }
+            }
+        }
+        catch {
+            Write-Host "错误：$($_.Exception.Message)" -ForegroundColor Red
+        }
+        if ($Choice -notin @("0", "3", "5")) {
+            Write-Host ""
+            Read-Host "按 Enter 继续" | Out-Null
+        }
+    }
 }
 
 function Show-SerialStatus {
@@ -500,6 +678,7 @@ function Show-Menu {
         Write-Host "8. 编辑本地配置"
         Write-Host "9. 打开日志目录"
         Write-Host "10. 自动检测当前串口的波特率"
+        Write-Host "11. 共享终端桥（PowerShell / cmd / 其他 shell）"
         Write-Host "0. 退出菜单（后台串口桥保持运行）"
         Write-Host ""
         $Choice = Read-Host "请选择"
@@ -543,6 +722,7 @@ function Show-Menu {
                         }
                     }
                 }
+                "11" { Show-ShellMenu }
                 "0" { return }
                 default { Write-Host "无法识别该选项。" -ForegroundColor Yellow }
             }
@@ -578,5 +758,14 @@ switch ($Action) {
     "AutoDetect" { Find-NextSerialPort | Out-Null }
     "AutoBaud"   { Find-SerialBaud -Passive:$Passive | Out-Null }
     "DetectConnect" { Detect-AndConnectNextSerialPort -NonInteractive }
+    "ShellStart" { Start-ShellBridge -Preset $ShellPreset }
+    "ShellStop"  { Stop-ShellBridge }
+    "ShellStatus" { Show-ShellStatus }
+    "ShellSend"  {
+        if ([string]::IsNullOrWhiteSpace($Command)) { throw "请通过 -Command 提供命令内容。" }
+        $Code = Send-ShellCommand $Command
+        if ($Code -eq 3) { exit 3 }
+        if ($Code -ne 0) { throw "命令结果不确定，请先检查交互终端或日志，再决定是否重发。" }
+    }
     default      { Show-Menu }
 }

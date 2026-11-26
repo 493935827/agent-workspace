@@ -35,13 +35,13 @@ python scripts/shared_serial_bridge.py connect --tcp 8888
 
 The bundled bridge defaults to `CR` for Enter because many embedded shells treat `CRLF` as two submissions and print the prompt twice.
 
-4. To share a local Windows console instead of a COM port, start the bridge with a `proc://` endpoint; the human terminal, agent commands, lease and logging all work the same way:
+4. To share a local Windows console (shell) instead of a COM port, start the bridge with a `proc://` endpoint; the human terminal, agent commands, lease and logging all work the same way:
 
 ```bash
 python scripts/shared_serial_bridge.py bridge --port proc://powershell --tcp 8890
 ```
 
-Presets: `proc://cmd`, `proc://powershell`, `proc://python`, or `proc://<exe>` with `--proc-args`. Input is line-based (typed characters appear after Enter), there is no baud rate, and a child exit releases the endpoint instead of respawning. See `references/shared-bridge.md` → Process Terminal Bridges.
+Presets: `proc://cmd`, `proc://powershell`, `proc://python`, or `proc://<exe>` with `--proc-args`. On Windows the child runs in a real pseudo console (ConPTY): the shell prints its own prompt and echoes keystrokes, and Ctrl+C interrupts a running command. There is no baud rate, and a child exit releases the endpoint instead of respawning. The Windows menu (`windows\serial_console.cmd`, item 11) can manage this shell bridge alongside a serial one. See `references/shared-bridge.md` → Process Terminal Bridges.
 
 5. For agent attachment and command execution after the bridge starts, follow **Agent Connection** below.
 

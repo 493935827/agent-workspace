@@ -34,11 +34,14 @@ def close_socket(sock):
         pass
 
 
-def open_serial(port, baud, proc_args=None, proc_cwd=None):
+def open_serial(port, baud, proc_args=None, proc_cwd=None,
+                proc_terminal='auto', proc_cols=120, proc_rows=30):
     # proc:// spawns a local process terminal; everything else goes to
     # serial_for_url, which also accepts normal COM names and loop:// for tests.
     from process_terminal import open_endpoint
-    return open_endpoint(port, baud, proc_args=proc_args, proc_cwd=proc_cwd)
+    return open_endpoint(port, baud, proc_args=proc_args, proc_cwd=proc_cwd,
+                         proc_terminal=proc_terminal, proc_cols=proc_cols,
+                         proc_rows=proc_rows)
 
 
 def run_bridge(args):
@@ -64,8 +67,23 @@ def run_bridge(args):
     log_path = args.log or f"serial_{safe_port}_{datetime.now():%Y%m%d_%H%M%S}.log"
     # getattr: the standalone importlib test harness builds args namespaces
     # without the newer proc fields.
+    proc_terminal = getattr(args, 'proc_conpty', 'auto') or 'auto'
     factory = (lambda p, b: open_serial(p, b, proc_args=getattr(args, 'proc_args', None),
-                                        proc_cwd=getattr(args, 'proc_cwd', None)))
+                                        proc_cwd=getattr(args, 'proc_cwd', None),
+                                        proc_terminal=proc_terminal,
+                                        proc_cols=getattr(args, 'proc_cols', 120),
+                                        proc_rows=getattr(args, 'proc_rows', 30)))
+    if args.port and args.port.lower().startswith('proc://'):
+        from process_terminal import conpty_backend, conpty_supported
+        effective = proc_terminal if proc_terminal != 'auto' else (
+            'conpty' if conpty_supported() else 'pipe')
+        if proc_terminal == 'auto' and effective == 'pipe':
+            print("[串口桥] 本机不支持 ConPTY，proc 终端退回管道模式（行编辑，Ctrl+C 仅清行）", flush=True)
+        if effective == 'conpty':
+            note = f"（真终端：提示符/逐字回显/Ctrl+C 可中断；后端 {conpty_backend()}）"
+        else:
+            note = ""
+        print(f"[串口桥] proc 终端模式：{effective}{note}", flush=True)
     service = SerialService(
         port=args.port, baud=args.baud, host=args.host, tcp=args.tcp,
         control=getattr(args, 'control', None) or args.tcp + 1,
@@ -382,6 +400,13 @@ def build_parser():
                         help="proc:// 终端的额外启动参数（例：'-NoProfile -ExecutionPolicy Bypass'）")
     bridge.add_argument("--proc-cwd", default=None,
                         help="proc:// 终端子进程的工作目录（默认随桥进程）")
+    bridge.add_argument("--proc-conpty", choices=("auto", "on", "off"), default="auto",
+                        help="proc:// 终端模式：auto=可用则用 ConPTY 真终端，on=强制（不支持即报错），"
+                             "off=强制旧管道模式（行编辑，Ctrl+C 仅清行）")
+    bridge.add_argument("--proc-cols", type=int, default=120,
+                        help="ConPTY 终端列数（默认 120）")
+    bridge.add_argument("--proc-rows", type=int, default=30,
+                        help="ConPTY 终端行数（默认 30）")
     bridge.add_argument("--autobaud", action="store_true",
                         help="监视接收乱码并自动重扫波特率（被动，不发送任何数据）")
     bridge.add_argument("--autobaud-probe", action="store_true",

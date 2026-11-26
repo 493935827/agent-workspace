@@ -12,6 +12,8 @@ if not exist ".venv\Scripts\pyinstaller.exe" (
 ".venv\Scripts\pyinstaller.exe" --noconfirm --clean --onefile --windowed ^
   --name SerialWorkbench ^
   --add-data "scripts\qt-preview-tokens.json;." ^
+  --add-data "scripts\conpty\conpty.dll;conpty" ^
+  --add-data "scripts\conpty\OpenConsole.exe;conpty" ^
   scripts\serial_gui_qt.py
 if errorlevel 1 (
   echo.

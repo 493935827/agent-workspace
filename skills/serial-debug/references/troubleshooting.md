@@ -62,6 +62,15 @@ Check cable, adapter driver, permissions, and whether another tool already owns 
 - Recheck the console attachment mode.
 - Confirm baud, parity, stop bits, and flow control.
 
+## proc:// Shell Bridge Behaves Odd
+
+- `status.error` reports `exit code=N` after a typed `exit` or a crashed child: the shell session is gone, use `serial.open` (or the GUI reconnect) to pull a fresh child. The bridge stays released in the meantime.
+- Garbled Chinese output on `proc://cmd`: the console codepage is ANSI (GBK on zh-CN). Add `--encoding gbk` to `connect`/`send`, or switch to `proc://powershell` whose output the bridge forces to UTF-8.
+- VT escape sequences in the shell log (`ESC[…`): normal ConPTY output, not corruption. Terminals render them; the Qt workbench parses them.
+- The child shows no prompt or every `send` is rejected with "Device is not connected": the endpoint opened but the child died immediately. Check the bridge diagnostic log (`bridge_diagnostic.log` / `bridge_error.log`) for the child's own error, fix the preset or `ShellProcArgs`, then `serial.open` again.
+- A shell program misbehaves under the pseudo console (rare): restart the bridge with `--proc-conpty off` for the legacy pipe mode (line-based input, Ctrl+C only clears the pending line).
+- On hosts without any ConPTY backend, `auto` mode falls back to pipe mode automatically; the bridge startup line announces which mode is active.
+
 ## Write Access Collides
 
 - For Conserver, check who currently has read-write access with `console -w`.

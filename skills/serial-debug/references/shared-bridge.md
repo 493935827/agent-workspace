@@ -28,7 +28,7 @@ Append `--autobaud` to monitor the receive stream for sustained garbled output a
 
 ## Process Terminal Bridges (proc://)
 
-The same bridge can share a local Windows console process instead of a COM port. `--port proc://<preset>` spawns the child and owns its stdin/stdout; human terminals and agent senders connect exactly as they do for serial, so a human and an agent share one live CMD/PowerShell/REPL session.
+The same bridge can share a local Windows console process instead of a COM port. `--port proc://<preset>` spawns the child inside a real pseudo console (ConPTY) and owns its transport; human terminals and agent senders connect exactly as they do for serial, so a human and an agent share one live CMD/PowerShell/REPL session.
 
 ```bash
 python scripts/shared_serial_bridge.py bridge --port proc://powershell --tcp 8890
@@ -38,17 +38,40 @@ Presets:
 
 | Endpoint | Child process | Notes |
 | --- | --- | --- |
-| `proc://cmd` | `cmd.exe /Q /K` | Prompt comes from cmd itself; console codepage stays ANSI (GBK on zh-CN), so use `--encoding gbk` on `connect`/`send` for Chinese output. |
-| `proc://powershell` | `pwsh` if installed, else `powershell -NoProfile -NoLogo -Command -` | Output is forced to UTF-8 by the bridge. |
+| `proc://cmd` | `cmd.exe /Q /K` | Console codepage stays ANSI (GBK on zh-CN), so use `--encoding gbk` on `connect`/`send` for Chinese output. |
+| `proc://powershell` | `pwsh` if installed, else `powershell` | Interactive (`-NoProfile -NoLogo -NoExit`); output encoding forced to UTF-8 by an init line. |
 | `proc://python` | The bridge's own Python REPL (`-u -i`, UTF-8) | Prints `>>>` prompts. |
 | `proc://<exe>` | Any executable found on PATH (or an absolute path) | Combine with `--proc-args "..."` and `--proc-cwd <dir>`. |
 
-Behavior differences from a serial port:
+ConPTY mode (the default on Windows 10 1809+ when a backend is available):
 
-- Line input only. The bridge assembles keystrokes into lines (backspace edits the pending line, Ctrl+C clears it), normalizes them to CRLF, and mirrors every completed line to all raw terminals and the session log — a piped shell echoes nothing itself, so typed characters do not appear until Enter is pressed. Ctrl+C cannot interrupt a running command in pipe mode; escape bytes are dropped.
-- No baud rate. `--autobaud` is ignored at startup, and `serial.baud` / `serial.autobaud` control calls are refused with `unsupported`.
+- **True terminal.** The child believes it is attached to a console: it prints its own prompt, echoes every keystroke, and line editing / history (PSReadLine) work as in a real window. `send`-typed commands are echoed like on a serial device.
+- **Ctrl+C interrupts.** A `\x03` byte reaches the console host, so a running command (e.g. a long build) can actually be aborted — pipe mode could only clear the pending line.
+- VT sequences appear in the stream and in the session log; they are normal ConPTY output. Terminals render them natively and the Qt workbench parses them.
+- Console size defaults to 120×30; override with `--proc-cols/--proc-rows`.
+- The bridge prefers the bundled `scripts/conpty/conpty.dll` + `OpenConsole.exe` console host (pinned, mirrors pywinpty) and falls back to the in-box `kernel32.CreatePseudoConsole`; both are verified. The startup line prints the chosen backend.
+
+Mode selection with `--proc-conpty`:
+
+- `auto` (default): ConPTY when available, otherwise the legacy pipe mode.
+- `on`: force ConPTY; fail loudly when no backend exists.
+- `off`: force the legacy pipe mode (raw pipes + bridge-side line discipline: backspace edits the pending line, Ctrl+C clears it, escape bytes are dropped, a piped shell echoes nothing until Enter). Use it when a child program misbehaves under a pseudo console.
+- In `auto` mode a ConPTY creation failure degrades to pipe mode with a notice; `status.error` still reports child exits the same way in both modes.
+- No baud rate in either mode. `--autobaud` is ignored at startup, and `serial.baud` / `serial.autobaud` control calls are refused with `unsupported`.
 - When the child exits (including a typed `exit`), `status.error` reports the exit code and the bridge stays up in the released state — it never silently respawns a different shell session. `serial.open` (or a GUI reconnect) pulls the endpoint back up with a fresh child.
 - The Qt workbench attaches to a `proc://` bridge like a serial one: pick the `proc://` endpoint in the service dialog (baud is ignored). Attaching never reopens the child, so the shared session survives GUI connects and disconnects.
+
+### Windows menu (terminal bridge)
+
+`windows\serial_console.cmd` → menu item `11` manages a **shell** bridge alongside (not instead of) a serial bridge, with its own TCP/control ports and pid file:
+
+1. 启动终端桥（预设取自 `ShellPreset`，默认 powershell）
+2. 更换预设并启动（powershell / cmd / python / 任意可执行文件）
+3. 打开终端（`connect` 客户端；Ctrl+C 退出终端而不停桥）
+4. 发送单条命令（返回 send 退出码）
+5. 停止终端桥
+
+Defaults live in `windows/serial_config.psd1` (`ShellPreset`, `ShellTcpPort` 8890, `ShellControlPort` 8891, `ShellProcArgs`, `ShellProcCwd`). For agents: `-Action ShellStart [-ShellPreset powershell]`, `-Action ShellSend -Command "..."`, `-Action ShellStatus`, `-Action ShellStop`.
 
 ## Online Baud Detection (bridge keeps running)
 
