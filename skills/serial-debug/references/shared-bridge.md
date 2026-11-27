@@ -40,7 +40,7 @@ Presets:
 | --- | --- | --- |
 | `proc://cmd` | `cmd.exe /Q /K` | Console codepage stays ANSI (GBK on zh-CN), so use `--encoding gbk` on `connect`/`send` for Chinese output. |
 | `proc://powershell` | `pwsh` if installed, else `powershell` | Interactive (`-NoProfile -NoLogo -NoExit`); output encoding forced to UTF-8 by an init line. |
-| `proc://python` | The bridge's own Python REPL (`-u -i`, UTF-8) | Prints `>>>` prompts. |
+| `proc://python` | The bridge's own interpreter REPL (`-u -i`, UTF-8) | Frozen-exe bridges use the system `python` from PATH instead (the packaged exe is not an interpreter); fails closed with guidance when none is found. |
 | `proc://<exe>` | Any executable found on PATH (or an absolute path) | Combine with `--proc-args "..."` and `--proc-cwd <dir>`. |
 
 ConPTY mode (the default on Windows 10 1809+ when a backend is available):
@@ -72,6 +72,16 @@ Mode selection with `--proc-conpty`:
 5. 停止终端桥
 
 Defaults live in `windows/serial_config.psd1` (`ShellPreset`, `ShellTcpPort` 8890, `ShellControlPort` 8891, `ShellProcArgs`, `ShellProcCwd`). For agents: `-Action ShellStart [-ShellPreset powershell]`, `-Action ShellSend -Command "..."`, `-Action ShellStatus`, `-Action ShellStop`.
+
+### Qt workbench (terminal bridge)
+
+The Qt workbench manages a shell bridge without any command line: the settings tab has a 「共享终端桥」 section next to 「共享串口桥」.
+
+- **启动终端桥…** — pick a preset (`powershell` / `cmd` / `python` / any executable), TCP and control ports (default 8890/8891), an optional working directory, and the terminal mode (ConPTY 真终端 vs 管道行模式, i.e. `--proc-conpty auto/off`). The workbench spawns the bridge subprocess, waits for its control port, records the pid file (`windows/.runtime/bridge_shell.pid`, shared with the Windows menu so either frontend can stop the bridge), and opens a workbench session attached to `proc://<preset>`. If a bridge is already listening on the control port it attaches instead of spawning a second one.
+- **打开交互终端** — opens a real console window running the `connect` client against the shared TCP port (per-character echo, history, Ctrl+C interrupts a running command; Ctrl+C again exits the terminal, the bridge keeps running). The packaged exe opens this console through `cmd` because the exe itself is a windowed GUI-subsystem process.
+- **停止终端桥** — asks for the control port, confirms, reclaims an agent lease if needed, and calls `service.stop`; matching workbench sessions are retired.
+
+Terminal sessions behave like the menu-11 flow: sending commands from the workbench or an agent shares the same live shell, and the session log (including VT sequences in ConPTY mode) is written under the logs directory like a serial bridge.
 
 ## Online Baud Detection (bridge keeps running)
 

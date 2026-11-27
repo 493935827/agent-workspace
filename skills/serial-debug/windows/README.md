@@ -96,12 +96,13 @@ Qt 工作台（`serial_gui.cmd`）无需命令行：直连会话默认开启「�
 .venv\Scripts\python.exe scripts\shared_serial_bridge.py bridge --port proc://powershell --tcp 8890
 ```
 
-- 预设端点：`proc://cmd`、`proc://powershell`（优先 pwsh）、`proc://python`，或 `proc://<可执行文件>` 配 `--proc-args` / `--proc-cwd`。
+- 预设端点：`proc://cmd`、`proc://powershell`（优先 pwsh）、`proc://python`，或 `proc://<可执行文件>` 配 `--proc-args` / `--proc-cwd`。打包 exe 起桥时 `proc://python` 改用系统 PATH 上的 Python（exe 自身不是解释器，不会递归拉起自己）。
 - Windows 上默认以 **ConPTY 真终端**运行：shell 自己打印提示符、逐字回显、行编辑和历史可用，**Ctrl+C 能真正中断正在运行的命令**（等价于真窗口里的体验）；会话日志里出现的 VT 控制序列属正常现象。
 - 控制台尺寸默认 120×30，可用 `--proc-cols` / `--proc-rows` 调整；`--proc-conpty off` 可强制退回旧的管道模式（按行输入、Ctrl+C 仅清行）。
 - 交互终端与 agent 发送用法与串口桥完全一致（`connect` / `send` 指向同一个 TCP 端点）。
 - 无波特率概念，`--autobaud` 被忽略；`cmd` 预设输出为 GBK，中文乱码时给 `connect`/`send` 加 `--encoding gbk`；在共享 shell 里输入 `exit` 会让桥进入已释放状态（不会偷偷重启进程），用 `serial.open` 或 GUI 重连可重新拉起。
 - **菜单 11「共享终端桥」**：与串口桥并存管理一条 shell 桥（独立端口 8890/8891 与 pid 文件），可启动、换预设、开终端、发单条命令、停止；等价命令行 `-Action ShellStart [-ShellPreset powershell]` / `ShellSend -Command "..."` / `ShellStatus` / `ShellStop`。预设与端口在 `serial_config.psd1` 的 `ShellPreset` / `ShellTcpPort` / `ShellControlPort` / `ShellProcArgs` / `ShellProcCwd`。
+- **Qt 工作台「共享终端桥」分区**（`serial_gui.cmd`，设置页）：免命令行管理同一条 shell 桥——「启动终端桥…」选预设/端口/工作目录/终端模式后由工作台拉起桥子进程并自动接入会话（已在跑则直接接入；pid 文件与菜单 11 共用，任一前端都能停止）；「打开交互终端」弹真控制台窗口获得逐字回显体验；「停止终端桥」收回 Agent 租约后停桥。打包版 `SerialWorkbench.exe` 同样支持（以 `--bridge` 子命令把自身当桥/客户端进程拉起）。
 - 详细行为见 `references/shared-bridge.md` 的「Process Terminal Bridges」一节。
 
 ## PowerShell 命令

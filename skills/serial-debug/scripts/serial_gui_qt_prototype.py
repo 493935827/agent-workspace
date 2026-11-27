@@ -1239,8 +1239,8 @@ class Preview(WindowsSnapLayoutWindowMixin, QMainWindow):
         self.save_policy.setAccessibleName('日志保存策略')
         files.addWidget(row(label('保存策略', 'muted'), None, self.save_policy, spacing=4))
         self.settings_sections['files'] = files
-        # —— 波特率 / 提醒 / 共享串口桥：内容由 Workbench 按会话能力插入 ——
-        for name in ('波特率', '提醒', '共享串口桥'):
+        # —— 波特率 / 提醒 / 共享串口桥 / 共享终端桥：内容由 Workbench 按会话能力插入 ——
+        for name in ('波特率', '提醒', '共享串口桥', '共享终端桥'):
             self.settings_sections[name] = self._settings_section(settings_layout, name)
         settings_layout.addSpacing(4)
         self.settings_note = label('编码与保存策略将在接入真实串口后生效。', 'muted')

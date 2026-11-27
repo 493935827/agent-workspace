@@ -271,7 +271,10 @@ class ConPtyEndToEndBridgeTests(unittest.TestCase):
 
         tcp = self.free_tcp_port()
         control = self.free_tcp_port()
-        with tempfile.TemporaryDirectory() as log_dir:
+        # ignore_cleanup_errors：桥停后 ConPTY 子进程/OpenConsole 可能迟几毫秒才
+        # 松开日志句柄，满载跑套件时 rmtree 偶发 PermissionError（Windows 会
+        # 清理 %TEMP%，不能让清理竞态推翻通过的功能断言）。
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as log_dir:
             bridge = subprocess.Popen(
                 [sys.executable, str(self.BRIDGE_SCRIPT), 'bridge',
                  '--port', 'proc://cmd', '--tcp', str(tcp), '--control', str(control),

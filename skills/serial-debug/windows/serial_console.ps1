@@ -95,7 +95,11 @@ function Get-BridgeProcess {
         return $null
     }
     $ProcessInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $SavedPid" -ErrorAction SilentlyContinue
-    if ($null -eq $ProcessInfo -or $ProcessInfo.CommandLine -notlike "*shared_serial_bridge.py*bridge*") {
+    # 两种桥进程都认：脚本直跑（…shared_serial_bridge.py bridge …）与打包工作台
+    # 以子进程模式自启（…SerialWorkbench.exe --bridge bridge …）。
+    $IsBridge = ($ProcessInfo.CommandLine -like "*shared_serial_bridge.py*bridge*") -or
+                ($ProcessInfo.CommandLine -like "* --bridge *")
+    if ($null -eq $ProcessInfo -or -not $IsBridge) {
         Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
         return $null
     }

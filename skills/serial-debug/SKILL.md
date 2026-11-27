@@ -41,7 +41,7 @@ The bundled bridge defaults to `CR` for Enter because many embedded shells treat
 python scripts/shared_serial_bridge.py bridge --port proc://powershell --tcp 8890
 ```
 
-Presets: `proc://cmd`, `proc://powershell`, `proc://python`, or `proc://<exe>` with `--proc-args`. On Windows the child runs in a real pseudo console (ConPTY): the shell prints its own prompt and echoes keystrokes, and Ctrl+C interrupts a running command. There is no baud rate, and a child exit releases the endpoint instead of respawning. The Windows menu (`windows\serial_console.cmd`, item 11) can manage this shell bridge alongside a serial one. See `references/shared-bridge.md` → Process Terminal Bridges.
+Presets: `proc://cmd`, `proc://powershell`, `proc://python`, or `proc://<exe>` with `--proc-args`. On Windows the child runs in a real pseudo console (ConPTY): the shell prints its own prompt and echoes keystrokes, and Ctrl+C interrupts a running command. There is no baud rate, and a child exit releases the endpoint instead of respawning. Humans can manage this shell bridge without a terminal: the Windows menu (`windows\serial_console.cmd`, item 11) or the Qt workbench's settings section 「共享终端桥」 (start with preset/ports/mode → auto-attaches a session, open an interactive console, stop). See `references/shared-bridge.md` → Process Terminal Bridges.
 
 5. For agent attachment and command execution after the bridge starts, follow **Agent Connection** below.
 

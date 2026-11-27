@@ -35,11 +35,11 @@ class SettingsLayoutTests(unittest.TestCase):
         layout = window.settings_sections[name]
         return [layout.itemAt(i).widget() for i in range(layout.count())]
 
-    def test_settings_page_has_five_sections(self):
+    def test_settings_page_has_six_sections(self):
         window = self.make_window()
         self.addCleanup(window.close)
         self.assertEqual(list(window.settings_sections),
-                         ['display', 'files', '波特率', '提醒', '共享串口桥'])
+                         ['display', 'files', '波特率', '提醒', '共享串口桥', '共享终端桥'])
         self.assertIsInstance(window.modules[2][0], QScrollArea)
         self.assertEqual(window.inspector.tabText(2), '设置')
 
@@ -53,6 +53,8 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(buttons('提醒'), ['条件提醒…', '提醒重新计数'])
         self.assertEqual(buttons('共享串口桥'),
                          ['连接共享服务…', '终止 Agent 并接管', '停止桥并释放端口'])
+        self.assertEqual(buttons('共享终端桥'),
+                         ['启动终端桥…', '打开交互终端', '停止终端桥'])
         # 波特率：监测开关与检测按钮同一行，主动探测单独一行。
         baud_rows = [w for w in self.section_direct_children(window, '波特率')]
         self.assertIs(window.autobaud_monitor.parent(), baud_rows[0])
@@ -63,10 +65,10 @@ class SettingsLayoutTests(unittest.TestCase):
                          ['在线检测波特率'])
 
     def test_sections_collapsed_by_default_and_toggle(self):
-        """五个分区默认收起（像「设备信息」「命令宏」标签那样先折叠），点标题展开/再收起。"""
+        """分区默认收起（像「设备信息」「命令宏」标签那样先折叠），点标题展开/再收起。"""
         window = self.make_window()
         self.addCleanup(window.close)
-        titles = ['显示', '日志文件', '波特率', '提醒', '共享串口桥']
+        titles = ['显示', '日志文件', '波特率', '提醒', '共享串口桥', '共享终端桥']
         self.assertEqual(list(window.settings_section_chrome), titles)
         for title in titles:
             header, body = window.settings_section_chrome[title]

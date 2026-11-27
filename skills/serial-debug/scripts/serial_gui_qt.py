@@ -9,6 +9,7 @@ import json
 import os
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -503,14 +504,18 @@ class ServiceStopWorker(threading.Thread):
     Works whether or not the session currently holds a live ServiceWorker:
     it opens a short-lived control connection, takes the lease back from an
     agent if needed, then asks the service to stop itself (which closes the
-    device before the process exits).
+    device before the process exits). ``label``/``release`` only shape the
+    result wording (串口桥 vs 终端桥).
     """
 
-    def __init__(self, service, events, client_factory=ServiceClient):
+    def __init__(self, service, events, client_factory=ServiceClient,
+                 label='共享串口桥', release='串口已释放'):
         super().__init__(daemon=True, name=f"service-stop:{service['host']}:{service['control']}")
         self.service = dict(service)
         self.events = events
         self.client_factory = client_factory
+        self.label = label
+        self.release = release
 
     def emit(self, kind, payload=None):
         self.events.put((self, kind, payload, datetime.now()))
@@ -529,15 +534,138 @@ class ServiceStopWorker(threading.Thread):
                 self.emit('baud_notice', 'Agent 正持有设备，先收回租约再停止桥…')
                 client.call('agent.takeover')
             client.call('service.stop', instance=instance)
-            self.emit('service_stop_result', (True, f'共享串口桥已停止，串口已释放（{target}）'))
+            self.emit('service_stop_result', (True, f'{self.label}已停止，{self.release}（{target}）'))
         except Exception as exc:
-            self.emit('service_stop_result', (False, f'停止共享串口桥失败（{target}）：{exc}'))
+            self.emit('service_stop_result', (False, f'停止{self.label}失败（{target}）：{exc}'))
         finally:
             if client is not None:
                 try:
                     client.close()
                 except Exception:
                     pass
+
+
+# Sentinel "session" for bridge-service workers that own no tab: the shell
+# bridge start/stop helpers report through the same event queue, and poll()
+# routes them here instead of to a per-session handler.
+_BRIDGE_SERVICE = object()
+
+
+def _shell_runtime_dir():
+    """终端桥 pid 文件目录：源码运行与 Windows 控制器（serial_console.ps1 菜单 11）共用。"""
+    if not getattr(sys, 'frozen', False):
+        return Path(__file__).resolve().parent.parent / 'windows' / '.runtime'
+    return _app_dir() / '.runtime'
+
+
+def _clean_shell_preset(text):
+    """终端预设名：容忍手输 proc:// 前缀，避免拼出 proc://proc://…。"""
+    name = text.strip()
+    if name.lower().startswith('proc://'):
+        name = name[len('proc://'):]
+    return name
+
+
+class ShellBridgeStartWorker(threading.Thread):
+    """启动一个 proc:// 终端桥子进程，并等待其控制端口就绪。
+
+    结果经 'shell_start_result' 事件回主线程：(ok, message, service)。
+    service 携带 host/control/device，供工作台直接附着会话。pid 文件与
+    Windows 控制器共用，任一前端都能停止这个桥。源码运行直接拉起
+    shared_serial_bridge.py；打包成 exe 后以 `--bridge` 参数把工作台自身
+    作为桥子进程启动（桥模块已随 exe 打包）。
+    """
+
+    def __init__(self, preset, tcp, control, events, client_factory=ServiceClient,
+                 host='127.0.0.1', cwd=None, conpty=True, log_directory=None):
+        super().__init__(daemon=True, name=f"shell-bridge:{preset}:{tcp}")
+        self.preset = preset
+        self.tcp = int(tcp)
+        self.control = int(control)
+        self.events = events
+        self.client_factory = client_factory
+        self.host = host
+        self.cwd = cwd or None
+        self.conpty = bool(conpty)
+        base = Path(log_directory) if log_directory else _app_dir() / 'logs'
+        safe = re.sub(r'[^A-Za-z0-9._-]', '_', preset)
+        self.log_path = base / f'terminal_{safe}_{datetime.now():%Y%m%d_%H%M%S}.log'
+
+    def emit(self, kind, payload=None):
+        self.events.put((self, kind, payload, datetime.now()))
+
+    def _command(self):
+        args = ['bridge', '--port', f'proc://{self.preset}',
+                '--host', self.host, '--tcp', str(self.tcp),
+                '--control', str(self.control), '--log', str(self.log_path)]
+        if self.cwd:
+            args += ['--proc-cwd', self.cwd]
+        if not self.conpty:
+            args += ['--proc-conpty', 'off']
+        if not getattr(sys, 'frozen', False):
+            script = Path(__file__).resolve().parent / 'shared_serial_bridge.py'
+            return [sys.executable, str(script)] + args
+        return [sys.executable, '--bridge'] + args
+
+    def _record_pid(self, pid):
+        try:
+            runtime = _shell_runtime_dir()
+            runtime.mkdir(parents=True, exist_ok=True)
+            (runtime / 'bridge_shell.pid').write_text(str(pid), encoding='ascii')
+        except OSError:
+            pass
+
+    def _probe_ready(self):
+        """True 当控制端口已有桥应答；连接用后即关，失败静默（调用方决定重试）。"""
+        probe = None
+        try:
+            probe = self.client_factory(self.host, self.control, timeout=2)
+            probe.call('status')
+            return True
+        except Exception:
+            return False
+        finally:
+            if probe is not None:
+                try:
+                    probe.close()
+                except Exception:
+                    pass
+
+    def run(self):
+        service = dict(host=self.host, control=self.control,
+                       device=f'proc://{self.preset}', baud='115200')
+        # 已有桥在跑：直接接入，不再拉起第二个（端口必然冲突）。
+        if self._probe_ready():
+            self.emit('shell_start_result',
+                      (True, f'终端桥已在运行，已直接接入 {self.host}:{self.control}', service))
+            return
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            with open(self.log_path, 'ab') as log_handle:
+                proc = subprocess.Popen(self._command(), stdout=log_handle,
+                                        stderr=subprocess.STDOUT,
+                                        creationflags=creationflags)
+        except OSError as exc:
+            self.emit('shell_start_result', (False, f'无法启动终端桥进程：{exc}', None))
+            return
+        self._record_pid(proc.pid)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            code = proc.poll()
+            if code is not None:
+                self.emit('shell_start_result',
+                          (False, f'终端桥进程已退出（退出码 {code}）；请检查预设名或工作目录。'
+                                  f'日志：{self.log_path}', None))
+                return
+            if self._probe_ready():
+                mode = 'ConPTY 真终端' if self.conpty else '管道行模式'
+                self.emit('shell_start_result',
+                          (True, f'终端桥已启动：proc://{self.preset}（PID {proc.pid}，{mode}）', service))
+                return
+            time.sleep(0.2)
+        self.emit('shell_start_result',
+                  (False, f'终端桥进程已启动但控制端口 {self.control} 迟迟未就绪', None))
 
 
 def usb_serial_rank(port):
@@ -701,6 +829,25 @@ class Workbench(Preview):
         self.service_stop.setToolTip('停止共享串口桥进程并释放串口；Agent 与其他客户端的连接会一并断开')
         for b in (self.service_connect, self.service_takeover, self.service_stop):
             bridge.addWidget(b)
+        # 共享终端桥（shell）：与串口桥并存，一键启动/接入 proc:// 终端桥。
+        shell = sections['共享终端桥']
+        self._shell_start_pending = False
+        self._shell_stop_pending = False
+        self.shell_start = QPushButton('启动终端桥…')
+        self.shell_start.clicked.connect(self.start_shell_dialog)
+        self.shell_start.setToolTip('在本机启动（或接入已在跑的）proc:// 终端桥：'
+                                    'PowerShell / cmd / Python 等，人与 agent 共享同一条 shell 会话；'
+                                    '启动后自动在本工作台打开会话')
+        self.shell_terminal = QPushButton('打开交互终端')
+        self.shell_terminal.clicked.connect(self.open_shell_terminal_window)
+        self.shell_terminal.setToolTip('在新终端窗口连接终端桥，获得真终端体验'
+                                       '（逐字回显、历史、Ctrl+C 中断运行中命令）；后台桥保持运行')
+        self.shell_stop = QPushButton('停止终端桥')
+        self.shell_stop.clicked.connect(self.stop_shell_bridge)
+        self.shell_stop.setToolTip('停止终端桥进程，其 shell 子进程会一并结束；'
+                                   'Agent 与其他客户端的连接会断开')
+        for b in (self.shell_start, self.shell_terminal, self.shell_stop):
+            shell.addWidget(b)
         self.search.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.search.customContextMenuRequested.connect(self.search_menu)
         QShortcut(QKeySequence('F3'), self, activated=self.next_match)
@@ -1011,6 +1158,170 @@ class Workbench(Preview):
         stopper.start()
         self.update_state()
 
+    # ---- 共享终端桥（shell）----------------------------------------------
+
+    def start_shell_dialog(self):
+        d = QDialog(self)
+        d.setWindowTitle('启动共享终端桥')
+        f = QFormLayout(d)
+        preset = QComboBox()
+        preset.addItems(['powershell', 'cmd', 'python'])
+        preset.setEditable(True)
+        preset.setAccessibleName('终端预设')
+        tcp = QLineEdit('8890')
+        control = QLineEdit('8891')
+        cwd = QLineEdit('')
+        cwd.setPlaceholderText('可选；留空随桥进程')
+        mode = QComboBox()
+        mode.addItems(['ConPTY 真终端（提示符 / 逐字回显 / Ctrl+C 可中断）',
+                       '管道行模式（工作台日志更干净，Ctrl+C 仅清行）'])
+        mode.setAccessibleName('终端模式')
+        for title, w in [('终端预设（powershell / cmd / python / 可执行文件）', preset),
+                         ('共享 TCP 端口', tcp), ('控制端口', control),
+                         ('工作目录', cwd), ('终端模式', mode)]:
+            f.addRow(title, w)
+        buttons = self.dialog_buttons(d, f)
+        buttons.accepted.disconnect()
+        show_error = self.inline_form_error(f)
+
+        def accept():
+            name = _clean_shell_preset(preset.currentText())
+            if not name:
+                show_error('请填写终端预设')
+                return
+            try:
+                tcp_port = int(tcp.text().strip())
+                control_port = int(control.text().strip())
+            except ValueError:
+                tcp_port = control_port = 0
+            if not (0 < tcp_port < 65536) or not (0 < control_port < 65536):
+                show_error('端口需为 1-65535 的整数')
+                return
+            if tcp_port == control_port:
+                show_error('共享端口与控制端口不能相同')
+                return
+            d.accept()
+        buttons.accepted.connect(accept)
+        if not d.exec():
+            return
+        if self._shell_start_pending:
+            return
+        self._shell_start_pending = True
+        self.shell_start.setEnabled(False)
+        self.state.setText('正在启动终端桥…')
+        worker = ShellBridgeStartWorker(
+            _clean_shell_preset(preset.currentText()), int(tcp.text()), int(control.text()),
+            self.events, self.service_client_factory,
+            cwd=cwd.text().strip() or None, conpty=mode.currentIndex() == 0,
+            log_directory=self.options().get('log_directory'))
+        self.workers[worker] = _BRIDGE_SERVICE
+        worker.start()
+
+    def attach_shell_session(self, service, note=None):
+        name = f"service:{service['host']}:{service['control']}/{service['device']}"
+        index = self.create_session(name)
+        s = self.sessions[index]
+        s['service'] = dict(service)
+        if not s.get('worker'):
+            self.connect_session(index)
+        if note:
+            self.append(index, 'SYS', note)
+        return index
+
+    def _bridge_service_event(self, worker, kind, payload):
+        """Handle shell-bridge workers that own no tab (poll 哨兵分支)."""
+        if kind == 'baud_notice':
+            # Stop-path progress (e.g. 先收回 Agent 租约)；the worker stays
+            # registered until its terminal result arrives. update_state
+            # rewrites the bar on every poll, so hold the text like
+            # report_error does instead of setting it once.
+            self._status_error = (payload, time.monotonic() + 8)
+            self.update_state()
+            return
+        self.workers.pop(worker, None)
+        if kind == 'shell_start_result':
+            ok, message, service = payload
+            self._shell_start_pending = False
+            self.shell_start.setEnabled(True)
+            if ok and service:
+                self.attach_shell_session(service, note=message)
+                self.state.setText('终端桥会话已接入')
+            else:
+                self.report_error(message)
+        elif kind == 'service_stop_result':
+            ok, message = payload
+            self._shell_stop_pending = False
+            self.shell_stop.setEnabled(True)
+            control = int(worker.service.get('control') or 0)
+            for s in self.sessions:
+                if (s.get('service') and not s.get('close_requested')
+                        and int(s['service'].get('control') or 0) == control):
+                    index = next(i for i, item in enumerate(self.sessions) if item is s)
+                    if s.get('worker'):
+                        self.disconnect_session(s)
+                    self.append(index, 'SYS', message)
+            if ok:
+                self.state.setText('终端桥已停止')
+            else:
+                QMessageBox.warning(self, '停止终端桥', message)
+
+    def open_shell_terminal_window(self):
+        text, ok = QInputDialog.getText(self, '打开交互终端', '终端桥共享端口：',
+                                        QLineEdit.EchoMode.Normal, '8890')
+        if not ok or not text.strip():
+            return
+        try:
+            tcp_port = int(text.strip())
+        except ValueError:
+            self.report_error('端口需为整数')
+            return
+        try:
+            if not getattr(sys, 'frozen', False):
+                script = Path(__file__).resolve().parent / 'shared_serial_bridge.py'
+                command = [sys.executable, str(script), 'connect', '--tcp', str(tcp_port)]
+            else:
+                # 打包形态没有独立脚本：以 --bridge 子命令把工作台 exe 自身
+                # 当 connect 客户端。exe 是 --windowed 的 GUI 子系统进程，新
+                # 控制台只会分配给控制台程序，所以先开一个 cmd 再让它作为
+                # cmd 的子进程继承该控制台的 stdio（msvcrt 键盘读取依赖
+                # 真实控制台句柄）。
+                command = ['cmd', '/c', sys.executable, '--bridge',
+                           'connect', '--tcp', str(tcp_port)]
+            if os.name == 'nt':
+                # 独立控制台窗口承载交互终端；Ctrl+C 退出终端，后台桥保持运行。
+                subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_CONSOLE)
+            else:
+                subprocess.Popen(command)
+        except OSError as exc:
+            self.report_error(f'无法打开交互终端：{exc}')
+
+    def stop_shell_bridge(self):
+        if self._shell_stop_pending:
+            return
+        text, ok = QInputDialog.getText(self, '停止终端桥', '控制端口：',
+                                        QLineEdit.EchoMode.Normal, '8891')
+        if not ok or not text.strip():
+            return
+        try:
+            control = int(text.strip())
+        except ValueError:
+            self.report_error('控制端口需为整数')
+            return
+        answer = QMessageBox.question(
+            self, '停止终端桥',
+            f'停止 127.0.0.1:{control} 上的终端桥？\n其 shell 子进程会一并结束，'
+            'Agent 与其他客户端的连接会断开。',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._shell_stop_pending = True
+        self.shell_stop.setEnabled(False)
+        stopper = ServiceStopWorker(dict(host='127.0.0.1', control=control),
+                                    self.events, self.service_client_factory,
+                                    label='终端桥', release='shell 会话已结束')
+        self.workers[stopper] = _BRIDGE_SERVICE
+        stopper.start()
+
     def scan_baud_online(self):
         s = self.sessions[self.active]
         if (s.get('service') or {}).get('device', '').startswith('proc://'):
@@ -1076,6 +1387,11 @@ class Workbench(Preview):
             except queue.Empty:
                 break
             s = self.workers.get(w)
+            if s is _BRIDGE_SERVICE:
+                # Shell-bridge helpers own no tab; route them to their handler.
+                self._bridge_service_event(w, kind, payload)
+                dirty = True
+                continue
             if s is None:
                 continue
             if not any(s is item for item in self.sessions):
@@ -2429,7 +2745,26 @@ def main():
     parser.add_argument('--native-title', action='store_true')
     parser.add_argument('--zoom', type=int, default=125)
     parser.add_argument('--settings', type=Path)
-    args = parser.parse_args()
+    parser.add_argument('--bridge', action='store_true', help=argparse.SUPPRESS)
+    args, extra = parser.parse_known_args()
+    if args.bridge and extra:
+        # 工作台双模式入口：`serial_gui_qt.py --bridge <子命令> …`（打包 exe 同样
+        # 支持），让 GUI 能把自身作为终端桥 / connect 客户端子进程拉起——打包
+        # 形态没有独立的 shared_serial_bridge.py 可跑，模块全部随 exe 打包。
+        if sys.stdout is None or sys.stderr is None:
+            # --windowed 打包且未继承控制台时（隐藏后台启动桥），PyInstaller 会
+            # 把 stdio 置 None，桥/客户端模块的 print / stderr.write 会直接
+            # AttributeError 崩溃；替换成 devnull。经 cmd 控制台启动的 connect
+            # 子进程仍持有真实 stdio，不受影响。
+            if sys.stdout is None:
+                sys.stdout = open(os.devnull, 'w')
+            if sys.stderr is None:
+                sys.stderr = open(os.devnull, 'w')
+        from shared_serial_bridge import build_parser
+        bridge_args = build_parser().parse_args(extra)
+        return bridge_args.func(bridge_args)
+    if extra:
+        parser.error(f'无法识别的参数：{" ".join(extra)}')
     app = QApplication([])
     app.setStyle('Fusion')
     app.setFont(QFont('Microsoft YaHei UI', 7))

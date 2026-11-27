@@ -89,7 +89,16 @@ def resolve_spec(spec, proc_args=None, proc_cwd=None, interactive=False):
             argv, env, init = _preset(
                 [exe, '-NoProfile', '-NoLogo', '-Command', '-'], extra, init=POWERSHELL_INIT)
     elif lowered == 'python':
-        argv, env, init = _preset([sys.executable, '-u', '-i'], extra, env=UTF8_ENV)
+        interpreter = sys.executable
+        if getattr(sys, 'frozen', False):
+            # 打包形态里 sys.executable 是工作台 exe（GUI 子系统，不认 -u -i），
+            # 直接当解释器会递归拉起自己并以退出码 2 退出；改用系统 PATH 上的
+            # 真实解释器，找不到就明确报错而不是悄悄递归。
+            interpreter = shutil.which('python') or shutil.which('python3')
+            if interpreter is None:
+                raise SpecError('打包运行时未找到系统 Python；'
+                                '请直接指定解释器，例如 proc://C:\\Python312\\python.exe')
+        argv, env, init = _preset([interpreter, '-u', '-i'], extra, env=UTF8_ENV)
     else:
         exe = name if os.path.isfile(name) else shutil.which(name)
         if exe is None:
